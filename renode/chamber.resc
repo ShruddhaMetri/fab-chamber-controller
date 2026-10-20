@@ -4,7 +4,6 @@
 using sysbus
 mach create "chamber_ctrl"
 machine LoadPlatformDescription @platforms/boards/stm32f4_discovery-kit.repl
-
 showAnalyzer sysbus.usart2
 
 $bin?=@C:/embedded/fab-chamber-controller/firmware/chamber_ctrl/Debug/chamber_ctrl.elf
