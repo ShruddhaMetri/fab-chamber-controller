@@ -21,8 +21,10 @@
 #define RCC_AHB1ENR_GPIOBEN    (1UL << 1)
 #define RCC_AHB1ENR_GPIOCEN    (1UL << 2)
 #define RCC_AHB1ENR_GPIODEN    (1UL << 3)
+#define RCC_AHB1ENR_DMA2EN     (1UL << 22)
 #define RCC_APB1ENR_TIM3EN     (1UL << 1)
 #define RCC_APB1ENR_USART2EN   (1UL << 17)
+#define RCC_APB2ENR_ADC1EN     (1UL << 8)
 #define RCC_APB2ENR_SYSCFGEN   (1UL << 14)
 
 /* ---------------- GPIO ---------------- */
@@ -74,6 +76,38 @@
 #define TIM_CCMR1_OC2M_POS     12U
 #define TIM_CCER_CC1E          (1UL << 0)    /* channel 1 output on            */
 #define TIM_CCER_CC2E          (1UL << 4)    /* channel 2 output on            */
+
+/* ---------------- ADC1: analog-to-digital converter ---------------- */
+#define ADC1_BASE              0x40012000UL
+#define ADC1_SR                REG32(ADC1_BASE + 0x00)  /* status                    */
+#define ADC1_CR1               REG32(ADC1_BASE + 0x04)  /* control 1: scan mode      */
+#define ADC1_CR2               REG32(ADC1_BASE + 0x08)  /* control 2: on, DMA, start */
+#define ADC1_SMPR1             REG32(ADC1_BASE + 0x0C)  /* sample time, ch 10-18     */
+#define ADC1_SQR1              REG32(ADC1_BASE + 0x2C)  /* sequence length           */
+#define ADC1_SQR3              REG32(ADC1_BASE + 0x34)  /* sequence order 1-6        */
+#define ADC1_DR                REG32(ADC1_BASE + 0x4C)  /* data: the result          */
+#define ADC1_DR_ADDR           (ADC1_BASE + 0x4C)       /* its address, for the DMA  */
+
+#define ADC_CR1_SCAN           (1UL << 8)    /* convert several channels in turn  */
+#define ADC_CR2_ADON           (1UL << 0)    /* ADC power on                      */
+#define ADC_CR2_DMA            (1UL << 8)    /* request DMA after each conversion */
+#define ADC_CR2_DDS            (1UL << 9)    /* keep requesting DMA continuously  */
+#define ADC_CR2_SWSTART        (1UL << 30)   /* software start                    */
+
+/* ---------------- DMA2: direct memory access controller ---------------- */
+#define DMA2_BASE              0x40026400UL
+#define DMA2_LIFCR             REG32(DMA2_BASE + 0x08)  /* clear flags, streams 0-3 */
+#define DMA2_S0CR              REG32(DMA2_BASE + 0x10)  /* stream 0 configuration   */
+#define DMA2_S0NDTR            REG32(DMA2_BASE + 0x14)  /* number of items to copy  */
+#define DMA2_S0PAR             REG32(DMA2_BASE + 0x18)  /* peripheral (source) addr */
+#define DMA2_S0M0AR            REG32(DMA2_BASE + 0x1C)  /* memory (destination) addr */
+
+#define DMA_SCR_EN             (1UL << 0)    /* stream enable                     */
+#define DMA_SCR_MINC           (1UL << 10)   /* memory address increments         */
+#define DMA_SCR_PSIZE_32       (2UL << 11)   /* peripheral item = 32 bits         */
+#define DMA_SCR_MSIZE_32       (2UL << 13)   /* memory item = 32 bits             */
+#define DMA_LIFCR_S0_ALL       0x3DUL        /* clear all stream 0 flags          */
+#define DMA_SCR_CHSEL_POS      25U           /* request channel select            */
 
 /* ---------------- SysTick (inside the Cortex-M4 core) ---------------- */
 #define SYSTICK_BASE           0xE000E010UL

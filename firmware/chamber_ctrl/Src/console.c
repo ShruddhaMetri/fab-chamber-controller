@@ -12,6 +12,8 @@
 #include "app_config.h"
 #include "safety.h"
 #include "actuators.h"
+#include "sensors.h"
+#include "adc.h"
 
 #define LINE_MAX   32U
 
@@ -32,6 +34,7 @@ static void cmd_help(void)
     uart2_puts("  help      show this list\n");
     uart2_puts("  status    uptime, safety inputs, fault and LEDs\n");
     uart2_puts("  clear     reset a fault (only if e-stop and door are safe)\n");
+    uart2_puts("  sensors   raw ADC counts and converted readings\n");
     uart2_puts("  heater N  set heater power, N = 0-100 %\n");
     uart2_puts("  valve N   set throttle-valve opening, N = 0-100 %\n");
     uart2_puts("  version   firmware version\n");
@@ -53,6 +56,39 @@ static void print_permille(uint32_t pm)
     uart2_putc('.');
     uart2_put_uint(pm % 10U);
     uart2_puts(" %\n");
+}
+
+/* 4005 -> "400.5" */
+static void print_tenths(uint32_t v)
+{
+    uart2_put_uint(v / 10U);
+    uart2_putc('.');
+    uart2_put_uint(v % 10U);
+}
+
+/* 2050 -> "2.050" (always three digits after the point) */
+static void print_thousandths(uint32_t v)
+{
+    uint32_t frac = v % 1000U;
+    uart2_put_uint(v / 1000U);
+    uart2_putc('.');
+    uart2_putc((char)('0' + (frac / 100U)));
+    uart2_putc((char)('0' + ((frac / 10U) % 10U)));
+    uart2_putc((char)('0' + (frac % 10U)));
+}
+
+static void cmd_sensors(void)
+{
+    uart2_puts("Temp     raw ");
+    uart2_put_uint(adc_get_raw(ADC_IDX_TEMP));
+    uart2_puts(" / 4095 = ");
+    print_tenths(sensors_temp_dc());
+    uart2_puts(" C\n");
+    uart2_puts("Pressure raw ");
+    uart2_put_uint(adc_get_raw(ADC_IDX_PRESSURE));
+    uart2_puts(" / 4095 = ");
+    print_thousandths(sensors_pressure_mtorr());
+    uart2_puts(" Torr\n");
 }
 
 /* Read a whole number 0-100 from text. Returns 1 if valid, 0 if not. */
@@ -124,6 +160,7 @@ static void cmd_status(void)
         uart2_puts("FAULT (");
         if (src & FAULT_ESTOP) { uart2_puts(" e-stop"); }
         if (src & FAULT_DOOR)  { uart2_puts(" door"); }
+        if (src & FAULT_OVERTEMP) { uart2_puts(" over-temp"); }
         uart2_puts(" )\n");
     } else {
         uart2_puts("OK\n");
@@ -131,6 +168,13 @@ static void cmd_status(void)
     uart2_puts("Trips      : ");
     uart2_put_uint(safety_trip_count());
     uart2_puts("\n");
+
+    uart2_puts("Temperature: ");
+    print_tenths(sensors_temp_dc());
+    uart2_puts(" C\n");
+    uart2_puts("Pressure   : ");
+    print_thousandths(sensors_pressure_mtorr());
+    uart2_puts(" Torr\n");
 
     uart2_puts("Heater     : ");
     print_permille(heater_get_permille());
@@ -150,7 +194,7 @@ static void cmd_clear(void)
     } else if (safety_clear()) {
         uart2_puts("Fault cleared. Chamber ready.\n");
     } else {
-        uart2_puts("Cannot clear: e-stop is pressed or door is open.\n");
+        uart2_puts("Cannot clear: e-stop pressed, door open, or chamber still too hot.\n");
     }
 }
 
@@ -177,6 +221,8 @@ static void run_command(const char *cmd)
         cmd_status();
     } else if (strcmp(cmd, "clear") == 0) {
         cmd_clear();
+    } else if (strcmp(cmd, "sensors") == 0) {
+        cmd_sensors();
     } else if (strcmp(cmd, "heater") == 0) {
         uart2_puts("Usage: heater N   (N = 0-100)\n");
     } else if (strcmp(cmd, "valve") == 0) {

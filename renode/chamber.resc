@@ -9,6 +9,16 @@ machine LoadPlatformDescription @platforms/boards/stm32f4_discovery-kit.repl
 machine LoadPlatformDescriptionFromString "estop: Miscellaneous.Button @ gpioPortC 0 { -> gpioPortC@0 }"
 machine LoadPlatformDescriptionFromString "door: Miscellaneous.Button @ gpioPortC 1 { -> gpioPortC@1 }"
 
+# Step 7: Renode's STM32F4 model has no ADC, so add ADC1 (same register layout as
+# the STM32F7 model) and connect its DMA request to DMA2 stream 0, as on the real chip
+machine LoadPlatformDescriptionFromString "adc1: Analog.STM32_ADC @ sysbus 0x40012000 { IRQ -> nvic@18; DMARequest -> dma2@0 }"
+
+# Starting sensor values (raw ADC counts, 0-4095 = 0-3.3 V), -1 = hold until changed
+#   channel 14 = temperature: raw = degrees C x 5.12   (128 = 25 C, room temperature)
+#   channel 15 = pressure:    raw = Torr x 409.5        (819 = 2.000 Torr)
+sysbus.adc1 FeedSample 128 14 -1
+sysbus.adc1 FeedSample 819 15 -1
+
 showAnalyzer sysbus.usart2
 
 $bin?=@C:/embedded/fab-chamber-controller/firmware/chamber_ctrl/Debug/chamber_ctrl.elf

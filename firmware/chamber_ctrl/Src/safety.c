@@ -15,6 +15,7 @@
 #include "gpio.h"
 #include "uart.h"
 #include "actuators.h"
+#include "sensors.h"
 
 #define ESTOP_PIN   0U      /* PC0 */
 #define DOOR_PIN    1U      /* PC1 */
@@ -152,6 +153,9 @@ void safety_poll(void)
     if (new_trip & FAULT_DOOR) {
         uart2_puts("\n!!! FAULT: DOOR opened. Chamber in safe state.\n> ");
     }
+    if (new_trip & FAULT_OVERTEMP) {
+        uart2_puts("\n!!! FAULT: OVER-TEMPERATURE. Chamber in safe state.\n> ");
+    }
 
     /* Debounce both inputs and report when they settle back to inactive */
     if (debounce_update(&estop_db, read_estop_raw()) && (estop_db.stable == 0U)) {
@@ -160,6 +164,16 @@ void safety_poll(void)
     if (debounce_update(&door_db, read_door_raw()) && (door_db.stable == 0U)) {
         uart2_puts("\nDoor closed. Type 'clear' to reset the fault.\n> ");
     }
+}
+
+/* ---------------- Over-temperature (from the main loop) ---------------- */
+void safety_trip_overtemp(void)
+{
+    irq_disable();                     /* trip() also runs inside ISRs: protect it */
+    if ((g_fault_source & FAULT_OVERTEMP) == 0U) {
+        trip(FAULT_OVERTEMP);          /* only once per event */
+    }
+    irq_enable();
 }
 
 /* ---------------- Queries for the console ---------------- */
@@ -173,7 +187,8 @@ int safety_clear(void)
 {
     /* Never clear while an input is still active: that would hide a real hazard.
      * Check both the debounced state and the live pin. */
-    if (estop_db.stable || door_db.stable || read_estop_raw() || read_door_raw()) {
+    if (estop_db.stable || door_db.stable || read_estop_raw() || read_door_raw()
+        || sensors_overtemp_active()) {
         return 0;
     }
     irq_disable();
