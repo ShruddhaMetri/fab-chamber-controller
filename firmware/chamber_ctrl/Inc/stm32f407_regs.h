@@ -24,6 +24,7 @@
 #define RCC_AHB1ENR_DMA2EN     (1UL << 22)
 #define RCC_APB1ENR_TIM3EN     (1UL << 1)
 #define RCC_APB1ENR_USART2EN   (1UL << 17)
+#define RCC_APB1ENR_DACEN      (1UL << 29)
 #define RCC_APB2ENR_ADC1EN     (1UL << 8)
 #define RCC_APB2ENR_SYSCFGEN   (1UL << 14)
 
@@ -93,6 +94,17 @@
 #define ADC_CR2_DMA            (1UL << 8)    /* request DMA after each conversion */
 #define ADC_CR2_DDS            (1UL << 9)    /* keep requesting DMA continuously  */
 #define ADC_CR2_SWSTART        (1UL << 30)   /* software start                    */
+
+/* ---------------- DAC: digital-to-analog converter ---------------- */
+#define DAC_BASE               0x40007400UL
+#define DAC_CR                 REG32(DAC_BASE + 0x00)  /* control: channel enables  */
+#define DAC_DHR12R1            REG32(DAC_BASE + 0x08)  /* channel 1 input, 12-bit   */
+#define DAC_DHR12R2            REG32(DAC_BASE + 0x14)  /* channel 2 input, 12-bit   */
+#define DAC_DOR1               REG32(DAC_BASE + 0x2C)  /* channel 1 output (read)   */
+#define DAC_DOR2               REG32(DAC_BASE + 0x30)  /* channel 2 output (read)   */
+
+#define DAC_CR_EN1             (1UL << 0)    /* channel 1 on (pin PA4) */
+#define DAC_CR_EN2             (1UL << 16)   /* channel 2 on (pin PA5) */
 
 /* ---------------- DMA2: direct memory access controller ---------------- */
 #define DMA2_BASE              0x40026400UL

@@ -18,7 +18,7 @@ void     valve_set_percent(uint32_t percent);
 uint32_t heater_get_permille(void);
 uint32_t valve_get_permille(void);
 
-/* Safe state: heater off, valve fully open (pump the chamber out). ISR-safe. */
+/* Safe state: heater off, valve fully open, gases off. ISR-safe. */
 void     actuators_safe_state(void);
 
 #endif /* ACTUATORS_H */

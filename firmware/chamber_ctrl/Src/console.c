@@ -14,12 +14,16 @@
 #include "actuators.h"
 #include "sensors.h"
 #include "adc.h"
+#include "gas.h"
 
 #define LINE_MAX   32U
 
 static char     line[LINE_MAX];
 static uint32_t line_len = 0;
 static int      last_was_cr = 0;
+
+/* Forward declaration: parse_uint() is defined further down, but used earlier */
+static int parse_uint(const char *s, uint32_t max, uint32_t *out);
 
 static void prompt(void)
 {
@@ -37,6 +41,8 @@ static void cmd_help(void)
     uart2_puts("  sensors   raw ADC counts and converted readings\n");
     uart2_puts("  heater N  set heater power, N = 0-100 %\n");
     uart2_puts("  valve N   set throttle-valve opening, N = 0-100 %\n");
+    uart2_puts("  gas1 N    SiH4 flow, N = 0-100 sccm\n");
+    uart2_puts("  gas2 N    N2O flow,  N = 0-1000 sccm\n");
     uart2_puts("  version   firmware version\n");
     uart2_puts("  led on    blue LED on\n");
     uart2_puts("  led off   blue LED off\n");
@@ -77,6 +83,39 @@ static void print_thousandths(uint32_t v)
     uart2_putc((char)('0' + (frac % 10U)));
 }
 
+/* "Gas SiH4   : set 50 / meas 50 sccm" */
+static void print_gas(uint32_t mfc)
+{
+    uart2_puts("Gas ");
+    uart2_puts(gas_name(mfc));
+    uart2_puts(mfc == GAS_MFC1 ? "   : set " : "    : set ");
+    uart2_put_uint(gas_setpoint_sccm(mfc));
+    uart2_puts(" / meas ");
+    uart2_put_uint(gas_measured_sccm(mfc));
+    uart2_puts(" sccm\n");
+}
+
+static void cmd_gas(uint32_t mfc, const char *arg)
+{
+    uint32_t sccm;
+    uint32_t fs = gas_full_scale_sccm(mfc);
+
+    if (!parse_uint(arg, fs, &sccm)) {
+        uart2_puts("Usage: gas");
+        uart2_putc((char)('0' + mfc));
+        uart2_puts(" N   (N = 0-");
+        uart2_put_uint(fs);
+        uart2_puts(" sccm)\n");
+    } else if (gas_set_sccm(mfc, sccm)) {
+        uart2_puts(gas_name(mfc));
+        uart2_puts(" set to ");
+        uart2_put_uint(sccm);
+        uart2_puts(" sccm\n");
+    } else {
+        uart2_puts("Refused: fault active. Gas locked off until 'clear'.\n");
+    }
+}
+
 static void cmd_sensors(void)
 {
     uart2_puts("Temp     raw ");
@@ -89,10 +128,20 @@ static void cmd_sensors(void)
     uart2_puts(" / 4095 = ");
     print_thousandths(sensors_pressure_mtorr());
     uart2_puts(" Torr\n");
+    uart2_puts("Flow 1   raw ");
+    uart2_put_uint(adc_get_raw(ADC_IDX_FLOW1));
+    uart2_puts(" / 4095 = ");
+    uart2_put_uint(gas_measured_sccm(GAS_MFC1));
+    uart2_puts(" sccm SiH4\n");
+    uart2_puts("Flow 2   raw ");
+    uart2_put_uint(adc_get_raw(ADC_IDX_FLOW2));
+    uart2_puts(" / 4095 = ");
+    uart2_put_uint(gas_measured_sccm(GAS_MFC2));
+    uart2_puts(" sccm N2O\n");
 }
 
-/* Read a whole number 0-100 from text. Returns 1 if valid, 0 if not. */
-static int parse_percent(const char *s, uint32_t *out)
+/* Read a whole number 0..max from text. Returns 1 if valid, 0 if not. */
+static int parse_uint(const char *s, uint32_t max, uint32_t *out)
 {
     uint32_t value  = 0U;
     int      digits = 0;
@@ -102,7 +151,7 @@ static int parse_percent(const char *s, uint32_t *out)
     }
     while (*s >= '0' && *s <= '9') {
         value = (value * 10U) + (uint32_t)(*s - '0');
-        if (value > 100U) {
+        if (value > max) {
             return 0;                 /* out of range */
         }
         s++;
@@ -113,6 +162,11 @@ static int parse_percent(const char *s, uint32_t *out)
     }
     *out = value;
     return 1;
+}
+
+static int parse_percent(const char *s, uint32_t *out)
+{
+    return parse_uint(s, 100U, out);
 }
 
 static void cmd_heater(const char *arg)
@@ -161,6 +215,7 @@ static void cmd_status(void)
         if (src & FAULT_ESTOP) { uart2_puts(" e-stop"); }
         if (src & FAULT_DOOR)  { uart2_puts(" door"); }
         if (src & FAULT_OVERTEMP) { uart2_puts(" over-temp"); }
+        if (src & FAULT_GASFLOW)  { uart2_puts(" gas-flow"); }
         uart2_puts(" )\n");
     } else {
         uart2_puts("OK\n");
@@ -175,6 +230,9 @@ static void cmd_status(void)
     uart2_puts("Pressure   : ");
     print_thousandths(sensors_pressure_mtorr());
     uart2_puts(" Torr\n");
+
+    print_gas(GAS_MFC1);
+    print_gas(GAS_MFC2);
 
     uart2_puts("Heater     : ");
     print_permille(heater_get_permille());
@@ -194,7 +252,7 @@ static void cmd_clear(void)
     } else if (safety_clear()) {
         uart2_puts("Fault cleared. Chamber ready.\n");
     } else {
-        uart2_puts("Cannot clear: e-stop pressed, door open, or chamber still too hot.\n");
+        uart2_puts("Cannot clear: e-stop, door, temperature or gas flow still unsafe.\n");
     }
 }
 
@@ -231,6 +289,10 @@ static void run_command(const char *cmd)
         cmd_heater(cmd + 7);           /* the text after "heater " */
     } else if (strncmp(cmd, "valve ", 6) == 0) {
         cmd_valve(cmd + 6);
+    } else if (strncmp(cmd, "gas1", 4) == 0) {
+        cmd_gas(GAS_MFC1, cmd + 4);    /* parse_uint skips the space */
+    } else if (strncmp(cmd, "gas2", 4) == 0) {
+        cmd_gas(GAS_MFC2, cmd + 4);
     } else if (strcmp(cmd, "version") == 0) {
         cmd_version();
     } else if (strcmp(cmd, "led on") == 0) {

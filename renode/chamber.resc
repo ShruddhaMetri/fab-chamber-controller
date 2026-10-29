@@ -13,11 +13,18 @@ machine LoadPlatformDescriptionFromString "door: Miscellaneous.Button @ gpioPort
 # the STM32F7 model) and connect its DMA request to DMA2 stream 0, as on the real chip
 machine LoadPlatformDescriptionFromString "adc1: Analog.STM32_ADC @ sysbus 0x40012000 { IRQ -> nvic@18; DMARequest -> dma2@0 }"
 
+# Step 8: Renode has no STM32 DAC model, so a small Python script provides one,
+# including two simulated mass flow controllers that follow their setpoints
+machine LoadPlatformDescriptionFromString "dac: Python.PythonPeripheral @ sysbus 0x40007400 { size: 0x400; initable: true; filename: \"C:/embedded/fab-chamber-controller/renode/stm32_dac_mfc.py\" }"
+
 # Starting sensor values (raw ADC counts, 0-4095 = 0-3.3 V), -1 = hold until changed
 #   channel 14 = temperature: raw = degrees C x 5.12   (128 = 25 C, room temperature)
 #   channel 15 = pressure:    raw = Torr x 409.5        (819 = 2.000 Torr)
+#   channels 12, 13 = gas flow readback (set automatically by the MFC model)
 sysbus.adc1 FeedSample 128 14 -1
 sysbus.adc1 FeedSample 819 15 -1
+sysbus.adc1 FeedSample 0 12 -1
+sysbus.adc1 FeedSample 0 13 -1
 
 showAnalyzer sysbus.usart2
 

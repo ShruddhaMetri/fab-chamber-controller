@@ -42,7 +42,7 @@ void sensors_poll(void)
             over_count++;
         }
         if (over_count == OVERTEMP_SAMPLES) {
-            safety_trip_overtemp();
+            safety_trip_from_task(FAULT_OVERTEMP);
         }
     } else {
         over_count = 0U;

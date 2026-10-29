@@ -1,7 +1,7 @@
 /*
- * Fab Chamber Controller - Step 7
- * Temperature and pressure sensing with ADC1 + DMA2, and an
- * over-temperature interlock that forces the same safe state as the e-stop.
+ * Fab Chamber Controller - Step 8
+ * Process-gas control: DAC setpoints to two mass flow controllers,
+ * ADC readback of the real flow, and a gas-flow interlock.
  * Target: STM32F407VG (STM32F4 Discovery), simulated in Renode
  */
 #include <stdint.h>
@@ -13,6 +13,7 @@
 #include "safety.h"
 #include "actuators.h"
 #include "sensors.h"
+#include "gas.h"
 
 int main(void)
 {
@@ -31,13 +32,14 @@ int main(void)
     uart2_init();
     systick_init();
     actuators_init();
+    gas_init();
     sensors_init();
     safety_init();
 
     /* 2. Boot banner */
     uart2_puts("\n=================================\n");
     uart2_puts(" " FW_NAME " v" FW_VERSION "\n");
-    uart2_puts(" ADC + DMA sensors, PWM actuators, interlocks\n");
+    uart2_puts(" Gas MFCs (DAC), sensors, heater, interlocks\n");
     uart2_puts("=================================\n");
     console_init();
 
@@ -51,10 +53,11 @@ int main(void)
             safety_poll();
         }
 
-        /* Job 2: sensors every 100 ms (scale + over-temperature check) */
+        /* Job 2: every 100 ms: sensors (temperature, pressure) and gas flow check */
         if ((now - last_sensors) >= SENSOR_PERIOD_MS) {
             last_sensors += SENSOR_PERIOD_MS;
-            sensors_poll();
+            gas_poll();       /* uses the scan that sensors_poll() started 100 ms ago */
+            sensors_poll();   /* reads that scan, then starts the next one            */
         }
 
         /* Job 3: heartbeat LED every 1000 ms */
