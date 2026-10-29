@@ -21,6 +21,7 @@
 #define RCC_AHB1ENR_GPIOBEN    (1UL << 1)
 #define RCC_AHB1ENR_GPIOCEN    (1UL << 2)
 #define RCC_AHB1ENR_GPIODEN    (1UL << 3)
+#define RCC_APB1ENR_TIM3EN     (1UL << 1)
 #define RCC_APB1ENR_USART2EN   (1UL << 17)
 #define RCC_APB2ENR_SYSCFGEN   (1UL << 14)
 
@@ -50,6 +51,29 @@
 #define USART_CR1_TE           (1UL << 3)   /* transmitter enable          */
 #define USART_CR1_RXNEIE       (1UL << 5)   /* interrupt when byte arrives */
 #define USART_CR1_UE           (1UL << 13)  /* USART enable                */
+
+/* ---------------- TIM3: general-purpose timer used for PWM ---------------- */
+#define TIM3_BASE              0x40000400UL
+#define TIM3_CR1               REG32(TIM3_BASE + 0x00)  /* control: start/stop        */
+#define TIM3_EGR               REG32(TIM3_BASE + 0x14)  /* event generation           */
+#define TIM3_CCMR1             REG32(TIM3_BASE + 0x18)  /* channel 1-2 mode           */
+#define TIM3_CCER              REG32(TIM3_BASE + 0x20)  /* channel output enable      */
+#define TIM3_CNT               REG32(TIM3_BASE + 0x24)  /* the counter itself         */
+#define TIM3_PSC               REG32(TIM3_BASE + 0x28)  /* prescaler: divides clock   */
+#define TIM3_ARR               REG32(TIM3_BASE + 0x2C)  /* auto-reload: the period    */
+#define TIM3_CCR1              REG32(TIM3_BASE + 0x34)  /* compare value, channel 1   */
+#define TIM3_CCR2              REG32(TIM3_BASE + 0x38)  /* compare value, channel 2   */
+
+#define TIM_CR1_CEN            (1UL << 0)    /* counter enable                 */
+#define TIM_CR1_ARPE           (1UL << 7)    /* buffer ARR until next period   */
+#define TIM_EGR_UG             (1UL << 0)    /* update: load buffered values   */
+#define TIM_CCMR1_OC1PE        (1UL << 3)    /* buffer CCR1 until next period  */
+#define TIM_CCMR1_OC2PE        (1UL << 11)   /* buffer CCR2 until next period  */
+#define TIM_CCMR_PWM1          6UL           /* output-compare mode 110 = PWM mode 1 */
+#define TIM_CCMR1_OC1M_POS     4U
+#define TIM_CCMR1_OC2M_POS     12U
+#define TIM_CCER_CC1E          (1UL << 0)    /* channel 1 output on            */
+#define TIM_CCER_CC2E          (1UL << 4)    /* channel 2 output on            */
 
 /* ---------------- SysTick (inside the Cortex-M4 core) ---------------- */
 #define SYSTICK_BASE           0xE000E010UL

@@ -2,7 +2,8 @@
  * safety.c
  * Emergency-stop and door interlocks using external interrupts (EXTI).
  *
- * - The interrupt trips the fault the instant an input becomes active.
+ * - The interrupt trips the fault the instant an input becomes active,
+ *   and forces the actuators into the safe state (heater off, valve open).
  * - The main loop samples the inputs every 5 ms to debounce them, reports
  *   events on the console, and drives the red fault LED.
  * - The fault stays latched until the operator types "clear" AND both
@@ -13,6 +14,7 @@
 #include "app_config.h"
 #include "gpio.h"
 #include "uart.h"
+#include "actuators.h"
 
 #define ESTOP_PIN   0U      /* PC0 */
 #define DOOR_PIN    1U      /* PC1 */
@@ -60,6 +62,7 @@ static void trip(uint8_t source)
     }
     g_fault_source |= source;
     g_new_trip     |= source;
+    actuators_safe_state();            /* heater OFF, valve OPEN: within microseconds */
     led_on(LED_RED);                   /* fast visual alarm, a single atomic write */
 }
 

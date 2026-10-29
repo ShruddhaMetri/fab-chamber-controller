@@ -11,6 +11,7 @@
 #include "stm32f407_regs.h"
 #include "app_config.h"
 #include "safety.h"
+#include "actuators.h"
 
 #define LINE_MAX   32U
 
@@ -31,6 +32,8 @@ static void cmd_help(void)
     uart2_puts("  help      show this list\n");
     uart2_puts("  status    uptime, safety inputs, fault and LEDs\n");
     uart2_puts("  clear     reset a fault (only if e-stop and door are safe)\n");
+    uart2_puts("  heater N  set heater power, N = 0-100 %\n");
+    uart2_puts("  valve N   set throttle-valve opening, N = 0-100 %\n");
     uart2_puts("  version   firmware version\n");
     uart2_puts("  led on    blue LED on\n");
     uart2_puts("  led off   blue LED off\n");
@@ -41,6 +44,66 @@ static void print_led(const char *name, uint32_t pin)
 {
     uart2_puts(name);
     uart2_puts(led_is_on(pin) ? "ON\n" : "OFF\n");
+}
+
+/* Print a per-mille value as a percentage with one decimal, e.g. 405 -> "40.5 %" */
+static void print_permille(uint32_t pm)
+{
+    uart2_put_uint(pm / 10U);
+    uart2_putc('.');
+    uart2_put_uint(pm % 10U);
+    uart2_puts(" %\n");
+}
+
+/* Read a whole number 0-100 from text. Returns 1 if valid, 0 if not. */
+static int parse_percent(const char *s, uint32_t *out)
+{
+    uint32_t value  = 0U;
+    int      digits = 0;
+
+    while (*s == ' ') {               /* skip spaces */
+        s++;
+    }
+    while (*s >= '0' && *s <= '9') {
+        value = (value * 10U) + (uint32_t)(*s - '0');
+        if (value > 100U) {
+            return 0;                 /* out of range */
+        }
+        s++;
+        digits++;
+    }
+    if (digits == 0 || *s != '\0') {
+        return 0;                     /* no number, or extra characters after it */
+    }
+    *out = value;
+    return 1;
+}
+
+static void cmd_heater(const char *arg)
+{
+    uint32_t pct;
+    if (!parse_percent(arg, &pct)) {
+        uart2_puts("Usage: heater N   (N = 0-100)\n");
+    } else if (heater_set_percent(pct)) {
+        uart2_puts("Heater set to ");
+        uart2_put_uint(pct);
+        uart2_puts(" %\n");
+    } else {
+        uart2_puts("Refused: fault active. Heater locked off until 'clear'.\n");
+    }
+}
+
+static void cmd_valve(const char *arg)
+{
+    uint32_t pct;
+    if (!parse_percent(arg, &pct)) {
+        uart2_puts("Usage: valve N   (N = 0-100)\n");
+    } else {
+        valve_set_percent(pct);
+        uart2_puts("Valve set to ");
+        uart2_put_uint(pct);
+        uart2_puts(" %\n");
+    }
 }
 
 static void cmd_status(void)
@@ -68,6 +131,11 @@ static void cmd_status(void)
     uart2_puts("Trips      : ");
     uart2_put_uint(safety_trip_count());
     uart2_puts("\n");
+
+    uart2_puts("Heater     : ");
+    print_permille(heater_get_permille());
+    uart2_puts("Valve      : ");
+    print_permille(valve_get_permille());
 
     print_led("Green  LED : ", LED_GREEN);
     print_led("Orange LED : ", LED_ORANGE);
@@ -109,6 +177,14 @@ static void run_command(const char *cmd)
         cmd_status();
     } else if (strcmp(cmd, "clear") == 0) {
         cmd_clear();
+    } else if (strcmp(cmd, "heater") == 0) {
+        uart2_puts("Usage: heater N   (N = 0-100)\n");
+    } else if (strcmp(cmd, "valve") == 0) {
+        uart2_puts("Usage: valve N   (N = 0-100)\n");
+    } else if (strncmp(cmd, "heater ", 7) == 0) {
+        cmd_heater(cmd + 7);           /* the text after "heater " */
+    } else if (strncmp(cmd, "valve ", 6) == 0) {
+        cmd_valve(cmd + 6);
     } else if (strcmp(cmd, "version") == 0) {
         cmd_version();
     } else if (strcmp(cmd, "led on") == 0) {
