@@ -4,6 +4,11 @@
 using sysbus
 mach create "chamber_ctrl"
 machine LoadPlatformDescription @platforms/boards/stm32f4_discovery-kit.repl
+
+# Step 5: two virtual switches wired to the controller's safety inputs
+machine LoadPlatformDescriptionFromString "estop: Miscellaneous.Button @ gpioPortC 0 { -> gpioPortC@0 }"
+machine LoadPlatformDescriptionFromString "door: Miscellaneous.Button @ gpioPortC 1 { -> gpioPortC@1 }"
+
 showAnalyzer sysbus.usart2
 
 $bin?=@C:/embedded/fab-chamber-controller/firmware/chamber_ctrl/Debug/chamber_ctrl.elf

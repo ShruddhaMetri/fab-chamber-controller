@@ -10,6 +10,7 @@
 #include "systick.h"
 #include "stm32f407_regs.h"
 #include "app_config.h"
+#include "safety.h"
 
 #define LINE_MAX   32U
 
@@ -28,7 +29,8 @@ static void cmd_help(void)
 {
     uart2_puts("Commands:\n");
     uart2_puts("  help      show this list\n");
-    uart2_puts("  status    uptime and LED states\n");
+    uart2_puts("  status    uptime, safety inputs, fault and LEDs\n");
+    uart2_puts("  clear     reset a fault (only if e-stop and door are safe)\n");
     uart2_puts("  version   firmware version\n");
     uart2_puts("  led on    blue LED on\n");
     uart2_puts("  led off   blue LED off\n");
@@ -43,12 +45,45 @@ static void print_led(const char *name, uint32_t pin)
 
 static void cmd_status(void)
 {
+    uint8_t src = safety_fault_source();
+
     uart2_puts("Uptime     : ");
     uart2_put_uint(millis());
     uart2_puts(" ms\n");
+
+    uart2_puts("E-stop     : ");
+    uart2_puts(safety_estop_pressed() ? "PRESSED\n" : "released\n");
+    uart2_puts("Door       : ");
+    uart2_puts(safety_door_open() ? "OPEN\n" : "closed\n");
+
+    uart2_puts("State      : ");
+    if (safety_is_faulted()) {
+        uart2_puts("FAULT (");
+        if (src & FAULT_ESTOP) { uart2_puts(" e-stop"); }
+        if (src & FAULT_DOOR)  { uart2_puts(" door"); }
+        uart2_puts(" )\n");
+    } else {
+        uart2_puts("OK\n");
+    }
+    uart2_puts("Trips      : ");
+    uart2_put_uint(safety_trip_count());
+    uart2_puts("\n");
+
     print_led("Green  LED : ", LED_GREEN);
     print_led("Orange LED : ", LED_ORANGE);
+    print_led("Red    LED : ", LED_RED);
     print_led("Blue   LED : ", LED_BLUE);
+}
+
+static void cmd_clear(void)
+{
+    if (!safety_is_faulted()) {
+        uart2_puts("No fault to clear.\n");
+    } else if (safety_clear()) {
+        uart2_puts("Fault cleared. Chamber ready.\n");
+    } else {
+        uart2_puts("Cannot clear: e-stop is pressed or door is open.\n");
+    }
 }
 
 static void cmd_version(void)
@@ -72,6 +107,8 @@ static void run_command(const char *cmd)
         cmd_help();
     } else if (strcmp(cmd, "status") == 0) {
         cmd_status();
+    } else if (strcmp(cmd, "clear") == 0) {
+        cmd_clear();
     } else if (strcmp(cmd, "version") == 0) {
         cmd_version();
     } else if (strcmp(cmd, "led on") == 0) {

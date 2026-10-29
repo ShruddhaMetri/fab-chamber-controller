@@ -9,22 +9,30 @@
 #include <stdint.h>
 
 /* Turn an address into a 32-bit hardware register we can read and write */
-#define REG32(addr)            (*(volatile uint32_t *)(addr))
+#define REG32(addr)            (*(volatile uint32_t *)(uintptr_t)(addr))
 
 /* ---------------- RCC: Reset and Clock Control ---------------- */
 #define RCC_BASE               0x40023800UL
 #define RCC_AHB1ENR            REG32(RCC_BASE + 0x30)
 #define RCC_APB1ENR            REG32(RCC_BASE + 0x40)
+#define RCC_APB2ENR            REG32(RCC_BASE + 0x44)
 
 #define RCC_AHB1ENR_GPIOAEN    (1UL << 0)
+#define RCC_AHB1ENR_GPIOBEN    (1UL << 1)
+#define RCC_AHB1ENR_GPIOCEN    (1UL << 2)
 #define RCC_AHB1ENR_GPIODEN    (1UL << 3)
 #define RCC_APB1ENR_USART2EN   (1UL << 17)
+#define RCC_APB2ENR_SYSCFGEN   (1UL << 14)
 
 /* ---------------- GPIO ---------------- */
 #define GPIOA_BASE             0x40020000UL
+#define GPIOB_BASE             0x40020400UL
+#define GPIOC_BASE             0x40020800UL
 #define GPIOD_BASE             0x40020C00UL
 
 #define GPIO_MODER(base)       REG32((base) + 0x00)  /* pin mode           */
+#define GPIO_PUPDR(base)       REG32((base) + 0x0C)  /* pull-up/pull-down  */
+#define GPIO_IDR(base)         REG32((base) + 0x10)  /* input data         */
 #define GPIO_ODR(base)         REG32((base) + 0x14)  /* output data        */
 #define GPIO_BSRR(base)        REG32((base) + 0x18)  /* atomic set / reset */
 #define GPIO_AFRL(base)        REG32((base) + 0x20)  /* alternate function, pins 0-7 */
@@ -53,11 +61,30 @@
 #define SYST_CSR_TICKINT       (1UL << 1)
 #define SYST_CSR_CLKSOURCE     (1UL << 2)
 
+/* ---------------- SYSCFG: chooses which port drives each EXTI line ---------------- */
+#define SYSCFG_BASE            0x40013800UL
+#define SYSCFG_EXTICR1         REG32(SYSCFG_BASE + 0x08)  /* lines 0-3, 4 bits each */
+
+#define EXTI_PORT_A            0U
+#define EXTI_PORT_B            1U
+#define EXTI_PORT_C            2U
+
+/* ---------------- EXTI: external interrupt controller ---------------- */
+#define EXTI_BASE              0x40013C00UL
+#define EXTI_IMR               REG32(EXTI_BASE + 0x00)  /* interrupt mask: 1 = enabled  */
+#define EXTI_RTSR              REG32(EXTI_BASE + 0x08)  /* rising-edge trigger          */
+#define EXTI_FTSR              REG32(EXTI_BASE + 0x0C)  /* falling-edge trigger         */
+#define EXTI_PR                REG32(EXTI_BASE + 0x14)  /* pending: write 1 to clear    */
+
 /* ---------------- NVIC: interrupt controller ---------------- */
 /* ISER = Interrupt Set-Enable Registers; each holds 32 interrupts */
 #define NVIC_ISER(n)           REG32(0xE000E100UL + 4UL * (n))
+/* IPR = one priority byte per interrupt; STM32 uses the top 4 bits; 0 = most urgent */
+#define NVIC_IPR(irq)          (*(volatile uint8_t *)(0xE000E400UL + (irq)))
 
-#define USART2_IRQn            38U          /* USART2's interrupt number */
+#define EXTI0_IRQn             6U           /* EXTI line 0 interrupt number */
+#define EXTI1_IRQn             7U           /* EXTI line 1 interrupt number */
+#define USART2_IRQn            38U          /* USART2's interrupt number    */
 
 /* ---------------- SCB: system control ---------------- */
 #define SCB_AIRCR              REG32(0xE000ED0CUL)
