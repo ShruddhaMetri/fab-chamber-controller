@@ -28,10 +28,12 @@
 #include "temp_ctrl.h"
 #include "datalog.h"
 #include "actuators.h"
+#include "process.h"
 
 /* ---------------- Priorities (higher number = more urgent) ---------------- */
 #define PRIO_SAFETY       4U
 #define PRIO_CONTROL      3U
+#define PRIO_PROCESS      2U
 #define PRIO_LOGGER       2U
 #define PRIO_CONSOLE      1U
 #define PRIO_HEARTBEAT    1U
@@ -41,6 +43,7 @@
  * smallest amount each stack has ever had free. */
 #define STACK_SAFETY      256U
 #define STACK_CONTROL     384U
+#define STACK_PROCESS     512U
 #define STACK_LOGGER      320U
 #define STACK_CONSOLE     768U
 #define STACK_HEARTBEAT   128U
@@ -163,9 +166,11 @@ void rtos_app_start(void)
 
     g_flash_mutex = xSemaphoreCreateMutex();
     configASSERT(g_flash_mutex != NULL);
+    process_init();                       /* the console -> process command queue */
 
     (void)create(safety_task,    "Safety",    STACK_SAFETY,    PRIO_SAFETY);
     (void)create(control_task,   "Control",   STACK_CONTROL,   PRIO_CONTROL);
+    (void)create(process_task,   "Process",   STACK_PROCESS,   PRIO_PROCESS);
     (void)create(logger_task,    "Logger",    STACK_LOGGER,    PRIO_LOGGER);
     console = create(console_task, "Console", STACK_CONSOLE,   PRIO_CONSOLE);
     (void)create(heartbeat_task, "Heartbeat", STACK_HEARTBEAT, PRIO_HEARTBEAT);

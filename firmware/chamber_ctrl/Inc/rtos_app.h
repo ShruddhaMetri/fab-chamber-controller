@@ -6,6 +6,7 @@
  *   ---------  --------  -------------------  ---------------------------------
  *   Safety     4 (top)   every 5 ms           debounce e-stop/door, report trips
  *   Control    3         every 100 ms         gas check, sensors, PID
+ *   Process    2         100 ms + commands    recipe state machine, pressure control
  *   Logger     2         every 100 ms         data log to SPI flash
  *   Console    1         when a key arrives   commands
  *   Heartbeat  1         every 250 ms         status LEDs

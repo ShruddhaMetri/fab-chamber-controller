@@ -47,12 +47,32 @@ int heater_set_permille(uint32_t permille)
     return ok;
 }
 
-void valve_set_percent(uint32_t percent)
+int valve_set_percent(uint32_t percent)
 {
     if (percent > 100U) {
         percent = 100U;
     }
-    pwm_set_duty(VALVE_CH, percent * 10U);
+    return valve_set_permille(percent * 10U);
+}
+
+/* The valve is the mirror image of the heater: its SAFE position is fully
+ * open (the pump removes the process gas). So during a fault the valve may
+ * be opened but never closed, checked together with the write as above. */
+int valve_set_permille(uint32_t permille)
+{
+    int ok = 1;
+
+    if (permille > PWM_MAX_DUTY) {
+        permille = PWM_MAX_DUTY;
+    }
+    irq_disable();
+    if (safety_is_faulted() && (permille < PWM_MAX_DUTY)) {
+        ok = 0;                       /* refuse to close while a fault is latched */
+    } else {
+        pwm_set_duty(VALVE_CH, permille);
+    }
+    irq_enable();
+    return ok;
 }
 
 uint32_t heater_get_permille(void) { return pwm_get_duty(HEATER_CH); }

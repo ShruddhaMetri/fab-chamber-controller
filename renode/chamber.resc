@@ -31,9 +31,10 @@ machine LoadPlatformDescriptionFromString "eeprom: Memory.GenericI2cEeprom @ i2c
 machine LoadPlatformDescriptionFromString "logflash: SPI.Micron_MT25Q @ spi2 { underlyingMemory: logflash_mem }; logflash_mem: Memory.MappedMemory { size: 0x100000 }"
 machine LoadPlatformDescriptionFromString "gpioPortB: { 12 -> logflash@0 }"
 
-# Step 10: chamber physics. Every time the firmware starts an ADC scan (it
-# writes ADC1_CR2), chamber_model.py reads the heater PWM duty, advances the
-# chamber temperature by 100 ms and feeds it to the ADC temperature channel.
+# Step 10 + 12: chamber physics. Every time the firmware starts an ADC scan
+# (it writes ADC1_CR2), chamber_model.py reads the heater and valve PWM duties
+# and the gas setpoints, advances the chamber temperature and pressure by
+# 100 ms and feeds them to the ADC temperature and pressure channels.
 include @C:/embedded/fab-chamber-controller/renode/chamber_model.py
 sysbus AddWatchpointHook 0x40012008 DoubleWord Write "import sys; sys.chamber_step(self, monitor, value)"
 
@@ -46,6 +47,9 @@ $bin?=@C:/embedded/fab-chamber-controller/firmware/chamber_ctrl/Debug/chamber_ct
 #   channel 14 = temperature: raw = degrees C x 5.12   (128 = 25 C, room temperature)
 #   channel 15 = pressure:    raw = Torr x 409.5        (819 = 2.000 Torr)
 #   channels 12, 13 = gas flow readback (set automatically by the MFC model)
+# From Step 10 (temperature) and Step 12 (pressure), chamber_model.py replaces
+# channels 14 and 15 with its own values at every scan, so these are only the
+# readings for the first 100 ms after a reset.
 macro reset
 """
     sysbus LoadELF $bin

@@ -1,6 +1,6 @@
 /*
- * Fab Chamber Controller - Step 11
- * The main loop is replaced by FreeRTOS tasks (see rtos_app.c).
+ * Fab Chamber Controller - Step 12
+ * FreeRTOS tasks (rtos_app.c) + automatic recipe execution (process.c).
  * Target: STM32F407VG (STM32F4 Discovery), simulated in Renode
  */
 #include <stdint.h>
@@ -38,7 +38,7 @@ int main(void)
     /* 2. Boot banner */
     uart2_puts("\n=================================\n");
     uart2_puts(" " FW_NAME " v" FW_VERSION "\n");
-    uart2_puts(" FreeRTOS: 5 tasks\n");
+    uart2_puts(" FreeRTOS + recipe automation\n");
     uart2_puts("=================================\n");
     datalog_init();          /* prints how many records it found */
 

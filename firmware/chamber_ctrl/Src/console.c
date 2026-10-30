@@ -7,6 +7,10 @@
  *   tasks    - list the tasks, their stacks and the control-loop timing
  *   busy N   - keep the console busy for N ms, to show that the PID and
  *              the safety task keep running on time anyway
+ *
+ * Step 12: run / abort / proc control the automatic recipe (process.c).
+ * While a recipe runs, manual commands that move the chamber (temp, heater,
+ * valve, gas, pid gains) are refused: one master at a time.
  */
 #include <string.h>
 #include "console.h"
@@ -24,6 +28,7 @@
 #include "datalog.h"
 #include "temp_ctrl.h"
 #include "rtos_app.h"
+#include "process.h"
 
 #define LINE_MAX   64U
 
@@ -62,6 +67,9 @@ static void cmd_help(void)
     uart2_puts("  log                             data-log summary and last records\n");
     uart2_puts("  log erase                       erase the data log\n");
     uart2_puts("  log csv                         print the whole log as CSV (for Excel)\n");
+    uart2_puts("  run N     run recipe N automatically (pump, leak check, heat, gas, deposit...)\n");
+    uart2_puts("  abort     stop the running recipe and make the chamber safe\n");
+    uart2_puts("  proc      show the recipe step, timers and pressure control\n");
     uart2_puts("  tasks     FreeRTOS tasks, stack use, control-loop timing\n");
     uart2_puts("  busy N    keep the console busy for N ms (RTOS demo)\n");
     uart2_puts("  version   firmware version\n");
@@ -530,12 +538,102 @@ static void cmd_valve(const char *arg)
     uint32_t pct;
     if (!parse_percent(arg, &pct)) {
         uart2_puts("Usage: valve N   (N = 0-100)\n");
-    } else {
-        valve_set_percent(pct);
+    } else if (valve_set_percent(pct)) {
         uart2_puts("Valve set to ");
         uart2_put_uint(pct);
         uart2_puts(" %\n");
+    } else {
+        uart2_puts("Refused: fault active. Valve stays fully open until 'clear'.\n");
     }
+}
+
+/* ---------------- Automatic recipe (Step 12) ---------------- */
+static void cmd_run(const char *arg)
+{
+    uint32_t slot;
+    recipe_t r;
+    int rc;
+
+    if (!parse_uint(arg, RECIPE_SLOTS, &slot) || slot == 0U) {
+        uart2_puts("Usage: run N   (N = 1-4)\n");
+        return;
+    }
+    if (process_is_running()) {
+        uart2_puts("Refused: a recipe is already running. Type 'abort' first.\n");
+        return;
+    }
+    if (safety_is_faulted()) {
+        uart2_puts("Refused: fault active. Clear it first.\n");
+        return;
+    }
+    /* Load and check the recipe HERE, in the console task: the EEPROM is only
+     * ever used by this task, so it needs no mutex. The Process task gets a
+     * verified copy through the queue. */
+    rc = recipe_load(slot - 1U, &r);
+    if (rc != RECIPE_OK) {
+        uart2_puts("Cannot run: recipe ");
+        uart2_put_uint(slot);
+        uart2_puts(" is ");
+        uart2_puts(recipe_status_text(rc));
+        uart2_puts("\n");
+        return;
+    }
+    if (!process_request_run(&r)) {
+        uart2_puts("Busy, try again.\n");
+    }
+}
+
+static void cmd_abort(void)
+{
+    if (!process_is_running()) {
+        uart2_puts("No recipe running.\n");
+    } else if (!process_request_abort()) {
+        uart2_puts("Busy, try again.\n");
+    }
+}
+
+static void cmd_proc(void)
+{
+    proc_status_t st;
+    process_get_status(&st);
+
+    uart2_puts("Step       : ");
+    uart2_puts(process_state_name(st.state));
+    uart2_puts("\n");
+    if (st.state == PS_IDLE) {
+        uart2_puts("No recipe has been run. Type 'run N'.\n");
+        return;
+    }
+    uart2_puts("Recipe     : ");      uart2_puts(st.recipe_name);
+    uart2_puts("\nRun time   : ");    uart2_put_uint(st.run_s);
+    uart2_puts(" s\nIn step    : ");  uart2_put_uint(st.state_s);
+    uart2_puts(" s\n");
+    if (st.state == PS_DEPOSIT) {
+        uart2_puts("Remaining  : ");  uart2_put_uint(st.remaining_s);  uart2_puts(" s\n");
+    }
+    uart2_puts("Temperature: ");  print_tenths(sensors_temp_dc());          uart2_puts(" C\n");
+    uart2_puts("Pressure   : ");  print_thousandths(sensors_pressure_mtorr());
+    if (st.pressure_sp != 0U) {
+        uart2_puts(" Torr (setpoint ");  print_thousandths(st.pressure_sp);  uart2_puts(")\n");
+    } else {
+        uart2_puts(" Torr (no pressure control)\n");
+    }
+    uart2_puts("Valve      : ");  print_permille(valve_get_permille());
+    print_gas(GAS_MFC1);
+    print_gas(GAS_MFC2);
+    if (st.reason[0] != '\0') {
+        uart2_puts("Aborted    : ");  uart2_puts(st.reason);  uart2_puts("\n");
+    }
+}
+
+/* Manual commands that move the chamber are refused during a recipe */
+static int manual_locked(void)
+{
+    if (process_is_running()) {
+        uart2_puts("Refused: recipe running. Type 'abort' to take manual control.\n");
+        return 1;
+    }
+    return 0;
 }
 
 static void cmd_status(void)
@@ -646,9 +744,17 @@ static void run_command(const char *cmd)
     } else if (strcmp(cmd, "clear") == 0) {
         cmd_clear();
     } else if (strncmp(cmd, "temp", 4) == 0 && (cmd[4] == '\0' || cmd[4] == ' ')) {
-        cmd_temp(cmd + 4);
-    } else if (strncmp(cmd, "pid", 3) == 0 && (cmd[3] == '\0' || cmd[3] == ' ')) {
-        cmd_pid(cmd);
+        if (!manual_locked()) { cmd_temp(cmd + 4); }
+    } else if (strcmp(cmd, "pid") == 0) {
+        cmd_pid(cmd);                  /* just showing the PID is always allowed */
+    } else if (strncmp(cmd, "pid ", 4) == 0) {
+        if (!manual_locked()) { cmd_pid(cmd); }
+    } else if (strncmp(cmd, "run", 3) == 0 && (cmd[3] == '\0' || cmd[3] == ' ')) {
+        cmd_run(cmd + 3);
+    } else if (strcmp(cmd, "abort") == 0) {
+        cmd_abort();
+    } else if (strcmp(cmd, "proc") == 0) {
+        cmd_proc();
     } else if (strncmp(cmd, "recipe", 6) == 0 && (cmd[6] == '\0' || cmd[6] == ' ')) {
         cmd_recipe(cmd);
     } else if (strncmp(cmd, "log", 3) == 0 && (cmd[3] == '\0' || cmd[3] == ' ')) {
@@ -660,13 +766,13 @@ static void run_command(const char *cmd)
     } else if (strcmp(cmd, "valve") == 0) {
         uart2_puts("Usage: valve N   (N = 0-100)\n");
     } else if (strncmp(cmd, "heater ", 7) == 0) {
-        cmd_heater(cmd + 7);           /* the text after "heater " */
+        if (!manual_locked()) { cmd_heater(cmd + 7); }   /* the text after "heater " */
     } else if (strncmp(cmd, "valve ", 6) == 0) {
-        cmd_valve(cmd + 6);
+        if (!manual_locked()) { cmd_valve(cmd + 6); }
     } else if (strncmp(cmd, "gas1", 4) == 0) {
-        cmd_gas(GAS_MFC1, cmd + 4);    /* parse_uint skips the space */
+        if (!manual_locked()) { cmd_gas(GAS_MFC1, cmd + 4); }   /* parse_uint skips the space */
     } else if (strncmp(cmd, "gas2", 4) == 0) {
-        cmd_gas(GAS_MFC2, cmd + 4);
+        if (!manual_locked()) { cmd_gas(GAS_MFC2, cmd + 4); }
     } else if (strcmp(cmd, "tasks") == 0) {
         rtos_print_tasks();
     } else if (strncmp(cmd, "busy", 4) == 0 && (cmd[4] == '\0' || cmd[4] == ' ')) {
