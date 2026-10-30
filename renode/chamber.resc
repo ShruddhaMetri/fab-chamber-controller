@@ -17,22 +17,29 @@ machine LoadPlatformDescriptionFromString "adc1: Analog.STM32_ADC @ sysbus 0x400
 # including two simulated mass flow controllers that follow their setpoints
 machine LoadPlatformDescriptionFromString "dac: Python.PythonPeripheral @ sysbus 0x40007400 { size: 0x400; initable: true; filename: \"C:/embedded/fab-chamber-controller/renode/stm32_dac_mfc.py\" }"
 
-# Starting sensor values (raw ADC counts, 0-4095 = 0-3.3 V), -1 = hold until changed
-#   channel 14 = temperature: raw = degrees C x 5.12   (128 = 25 C, room temperature)
-#   channel 15 = pressure:    raw = Torr x 409.5        (819 = 2.000 Torr)
-#   channels 12, 13 = gas flow readback (set automatically by the MFC model)
-sysbus.adc1 FeedSample 128 14 -1
-sysbus.adc1 FeedSample 819 15 -1
-sysbus.adc1 FeedSample 0 12 -1
-sysbus.adc1 FeedSample 0 13 -1
+# Step 9: a 4 KB I2C EEPROM (24C32-style: 16-bit addresses, 32-byte pages)
+# at bus address 0x50, and a Micron MT25Q SPI flash on SPI2 whose
+# chip-select input is wired to GPIO PB12, as on a real circuit board
+machine LoadPlatformDescriptionFromString "eeprom: Memory.GenericI2cEeprom @ i2c1 0x50 { size: 0x1000; addressBitSize: 16; pageSize: 32 }"
+machine LoadPlatformDescriptionFromString "logflash: SPI.Micron_MT25Q @ spi2 { underlyingMemory: logflash_mem }; logflash_mem: Memory.MappedMemory { size: 0x100000 }"
+machine LoadPlatformDescriptionFromString "gpioPortB: { 12 -> logflash@0 }"
 
 showAnalyzer sysbus.usart2
 
 $bin?=@C:/embedded/fab-chamber-controller/firmware/chamber_ctrl/Debug/chamber_ctrl.elf
 
+# The reset macro runs at start-up AND after every reset of the virtual chip.
+# Starting sensor values (raw ADC counts, 0-4095 = 0-3.3 V), -1 = hold until changed:
+#   channel 14 = temperature: raw = degrees C x 5.12   (128 = 25 C, room temperature)
+#   channel 15 = pressure:    raw = Torr x 409.5        (819 = 2.000 Torr)
+#   channels 12, 13 = gas flow readback (set automatically by the MFC model)
 macro reset
 """
     sysbus LoadELF $bin
+    sysbus.adc1 FeedSample 128 14 -1
+    sysbus.adc1 FeedSample 819 15 -1
+    sysbus.adc1 FeedSample 0 12 -1
+    sysbus.adc1 FeedSample 0 13 -1
 """
 runMacro $reset
 

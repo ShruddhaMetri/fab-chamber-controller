@@ -23,6 +23,8 @@
 #define RCC_AHB1ENR_GPIODEN    (1UL << 3)
 #define RCC_AHB1ENR_DMA2EN     (1UL << 22)
 #define RCC_APB1ENR_TIM3EN     (1UL << 1)
+#define RCC_APB1ENR_SPI2EN     (1UL << 14)
+#define RCC_APB1ENR_I2C1EN     (1UL << 21)
 #define RCC_APB1ENR_USART2EN   (1UL << 17)
 #define RCC_APB1ENR_DACEN      (1UL << 29)
 #define RCC_APB2ENR_ADC1EN     (1UL << 8)
@@ -35,11 +37,13 @@
 #define GPIOD_BASE             0x40020C00UL
 
 #define GPIO_MODER(base)       REG32((base) + 0x00)  /* pin mode           */
+#define GPIO_OTYPER(base)      REG32((base) + 0x04)  /* push-pull / open-drain */
 #define GPIO_PUPDR(base)       REG32((base) + 0x0C)  /* pull-up/pull-down  */
 #define GPIO_IDR(base)         REG32((base) + 0x10)  /* input data         */
 #define GPIO_ODR(base)         REG32((base) + 0x14)  /* output data        */
 #define GPIO_BSRR(base)        REG32((base) + 0x18)  /* atomic set / reset */
 #define GPIO_AFRL(base)        REG32((base) + 0x20)  /* alternate function, pins 0-7 */
+#define GPIO_AFRH(base)        REG32((base) + 0x24)  /* alternate function, pins 8-15 */
 
 /* ---------------- USART2 ---------------- */
 #define USART2_BASE            0x40004400UL
@@ -94,6 +98,43 @@
 #define ADC_CR2_DMA            (1UL << 8)    /* request DMA after each conversion */
 #define ADC_CR2_DDS            (1UL << 9)    /* keep requesting DMA continuously  */
 #define ADC_CR2_SWSTART        (1UL << 30)   /* software start                    */
+
+/* ---------------- I2C1: two-wire bus (EEPROM) ---------------- */
+#define I2C1_BASE              0x40005400UL
+#define I2C1_CR1               REG32(I2C1_BASE + 0x00)
+#define I2C1_CR2               REG32(I2C1_BASE + 0x04)
+#define I2C1_DR                REG32(I2C1_BASE + 0x10)
+#define I2C1_SR1               REG32(I2C1_BASE + 0x14)
+#define I2C1_SR2               REG32(I2C1_BASE + 0x18)
+#define I2C1_CCR               REG32(I2C1_BASE + 0x1C)
+#define I2C1_TRISE             REG32(I2C1_BASE + 0x20)
+
+#define I2C_CR1_PE             (1UL << 0)    /* peripheral enable            */
+#define I2C_CR1_START          (1UL << 8)    /* generate START condition     */
+#define I2C_CR1_STOP           (1UL << 9)    /* generate STOP condition      */
+#define I2C_CR1_ACK            (1UL << 10)   /* acknowledge received bytes   */
+#define I2C_CR1_SWRST          (1UL << 15)   /* software reset               */
+#define I2C_SR1_SB             (1UL << 0)    /* START sent                   */
+#define I2C_SR1_ADDR           (1UL << 1)    /* address sent and acknowledged */
+#define I2C_SR1_BTF            (1UL << 2)    /* byte transfer finished       */
+#define I2C_SR1_RXNE           (1UL << 6)    /* a received byte is waiting   */
+#define I2C_SR1_TXE            (1UL << 7)    /* ready for the next byte      */
+#define I2C_SR1_AF             (1UL << 10)   /* acknowledge failure (NACK)   */
+
+/* ---------------- SPI2: four-wire bus (data-log flash) ---------------- */
+#define SPI2_BASE              0x40003800UL
+#define SPI2_CR1               REG32(SPI2_BASE + 0x00)
+#define SPI2_SR                REG32(SPI2_BASE + 0x08)
+#define SPI2_DR                REG32(SPI2_BASE + 0x0C)
+
+#define SPI_CR1_MSTR           (1UL << 2)    /* this chip is the master       */
+#define SPI_CR1_BR_POS         3U            /* baud-rate divider bits 5:3    */
+#define SPI_CR1_SPE            (1UL << 6)    /* SPI enable                    */
+#define SPI_CR1_SSI            (1UL << 8)    /* internal chip-select level    */
+#define SPI_CR1_SSM            (1UL << 9)    /* chip-select managed by software */
+#define SPI_SR_RXNE            (1UL << 0)    /* a received byte is waiting    */
+#define SPI_SR_TXE             (1UL << 1)    /* ready for the next byte       */
+#define SPI_SR_BSY             (1UL << 7)    /* transfer in progress          */
 
 /* ---------------- DAC: digital-to-analog converter ---------------- */
 #define DAC_BASE               0x40007400UL

@@ -15,8 +15,10 @@
 #include "sensors.h"
 #include "adc.h"
 #include "gas.h"
+#include "recipe.h"
+#include "datalog.h"
 
-#define LINE_MAX   32U
+#define LINE_MAX   64U
 
 static char     line[LINE_MAX];
 static uint32_t line_len = 0;
@@ -43,6 +45,12 @@ static void cmd_help(void)
     uart2_puts("  valve N   set throttle-valve opening, N = 0-100 %\n");
     uart2_puts("  gas1 N    SiH4 flow, N = 0-100 sccm\n");
     uart2_puts("  gas2 N    N2O flow,  N = 0-1000 sccm\n");
+    uart2_puts("  recipe                          list stored recipes\n");
+    uart2_puts("  recipe show N                   show recipe N (1-4)\n");
+    uart2_puts("  recipe save N NAME T P G1 G2 S  T=C, P=mTorr, G1/G2=sccm, S=seconds\n");
+    uart2_puts("  recipe erase N                  delete recipe N\n");
+    uart2_puts("  log                             data-log summary and last records\n");
+    uart2_puts("  log erase                       erase the data log\n");
     uart2_puts("  version   firmware version\n");
     uart2_puts("  led on    blue LED on\n");
     uart2_puts("  led off   blue LED off\n");
@@ -113,6 +121,214 @@ static void cmd_gas(uint32_t mfc, const char *arg)
         uart2_puts(" sccm\n");
     } else {
         uart2_puts("Refused: fault active. Gas locked off until 'clear'.\n");
+    }
+}
+
+/* ---------------- Word splitting ---------------- */
+#define MAX_ARGS  9U
+
+/* Split "recipe save 1 OXIDE" into argv[0]="recipe", argv[1]="save", ...
+ * by replacing spaces with '\0'. Works on a copy, never on the line itself. */
+static uint32_t split_args(char *s, char *argv[], uint32_t max)
+{
+    uint32_t argc = 0U;
+    while (*s != '\0' && argc < max) {
+        while (*s == ' ') { s++; }              /* skip spaces       */
+        if (*s == '\0') { break; }
+        argv[argc++] = s;                        /* start of a word   */
+        while (*s != ' ' && *s != '\0') { s++; }
+        if (*s == ' ') { *s++ = '\0'; }         /* end the word here */
+    }
+    return argc;
+}
+
+static void print_hex(uint32_t v, uint32_t digits)
+{
+    const char *hex = "0123456789ABCDEF";
+    uart2_puts("0x");
+    while (digits > 0U) {
+        digits--;
+        uart2_putc(hex[(v >> (digits * 4U)) & 0xFU]);
+    }
+}
+
+/* ---------------- Recipes (I2C EEPROM) ---------------- */
+static const char *recipe_status_text(int rc)
+{
+    switch (rc) {
+    case RECIPE_OK:          return "OK";
+    case RECIPE_EMPTY:       return "(empty)";
+    case RECIPE_CORRUPT:     return "CORRUPT (CRC mismatch)";
+    case RECIPE_VERIFY_FAIL: return "write verify failed";
+    default:                 return "EEPROM not responding";
+    }
+}
+
+static void print_recipe(uint32_t slot, const recipe_t *r)
+{
+    uart2_puts("Recipe ");
+    uart2_put_uint(slot + 1U);
+    uart2_puts(": ");
+    uart2_puts(r->name);
+    uart2_puts("\n  Temperature : "); uart2_put_uint(r->temp_c);         uart2_puts(" C");
+    uart2_puts("\n  Pressure    : "); print_thousandths(r->pressure_mtorr); uart2_puts(" Torr");
+    uart2_puts("\n  SiH4        : "); uart2_put_uint(r->gas1_sccm);      uart2_puts(" sccm");
+    uart2_puts("\n  N2O         : "); uart2_put_uint(r->gas2_sccm);      uart2_puts(" sccm");
+    uart2_puts("\n  Time        : "); uart2_put_uint(r->time_s);         uart2_puts(" s");
+    uart2_puts("\n  CRC         : "); print_hex(r->crc, 4U);             uart2_puts("\n");
+}
+
+static void recipe_list(void)
+{
+    uint32_t i;
+    recipe_t r;
+    for (i = 0U; i < RECIPE_SLOTS; i++) {
+        int rc = recipe_load(i, &r);
+        uart2_puts("  ");
+        uart2_put_uint(i + 1U);
+        uart2_puts(": ");
+        uart2_puts(rc == RECIPE_OK ? r.name : recipe_status_text(rc));
+        uart2_puts("\n");
+    }
+}
+
+static int parse_slot(const char *s, uint32_t *slot)
+{
+    uint32_t n;
+    if (!parse_uint(s, RECIPE_SLOTS, &n) || n == 0U) {
+        uart2_puts("Slot must be 1-4.\n");
+        return 0;
+    }
+    *slot = n - 1U;                             /* humans count from 1, arrays from 0 */
+    return 1;
+}
+
+static void recipe_cmd_save(char *argv[])
+{
+    recipe_t r;
+    uint32_t slot, t, p, g1, g2, s, len;
+    int rc;
+
+    if (!parse_slot(argv[2], &slot)) { return; }
+    len = (uint32_t)strlen(argv[3]);
+    if (len == 0U || len >= RECIPE_NAME_LEN) {
+        uart2_puts("Name must be 1-11 characters.\n");
+        return;
+    }
+    /* Process temperature must stay below the over-temperature reset limit */
+    if (!parse_uint(argv[4], OVERTEMP_RESET_DC / 10U, &t) || t == 0U ||
+        !parse_uint(argv[5], 10000U, &p) ||
+        !parse_uint(argv[6], gas_full_scale_sccm(GAS_MFC1), &g1) ||
+        !parse_uint(argv[7], gas_full_scale_sccm(GAS_MFC2), &g2) ||
+        !parse_uint(argv[8], 3600U, &s) || s == 0U) {
+        uart2_puts("Ranges: T 1-480 C, P 0-10000 mTorr, G1 0-100, G2 0-1000 sccm, S 1-3600 s\n");
+        return;
+    }
+    memset(&r, 0, sizeof(r));
+    memcpy(r.name, argv[3], len + 1U);          /* includes the '\0' */
+    r.temp_c         = (uint16_t)t;
+    r.pressure_mtorr = (uint16_t)p;
+    r.gas1_sccm      = (uint16_t)g1;
+    r.gas2_sccm      = (uint16_t)g2;
+    r.time_s         = (uint16_t)s;
+
+    rc = recipe_save(slot, &r);
+    if (rc == RECIPE_OK) {
+        uart2_puts("Saved and verified.\n");
+        print_recipe(slot, &r);
+    } else {
+        uart2_puts("Save failed: ");
+        uart2_puts(recipe_status_text(rc));
+        uart2_puts("\n");
+    }
+}
+
+static void cmd_recipe(const char *cmd)
+{
+    char     buf[LINE_MAX];
+    char    *argv[MAX_ARGS];
+    uint32_t argc, slot;
+    recipe_t r;
+    int      rc;
+
+    memcpy(buf, cmd, strlen(cmd) + 1U);
+    argc = split_args(buf, argv, MAX_ARGS);
+
+    if (argc == 1U) {
+        recipe_list();
+    } else if (argc == 3U && strcmp(argv[1], "show") == 0) {
+        if (!parse_slot(argv[2], &slot)) { return; }
+        rc = recipe_load(slot, &r);
+        if (rc == RECIPE_OK) {
+            print_recipe(slot, &r);
+        } else {
+            uart2_puts("Recipe ");
+            uart2_put_uint(slot + 1U);
+            uart2_puts(": ");
+            uart2_puts(recipe_status_text(rc));
+            uart2_puts("\n");
+        }
+    } else if (argc == 3U && strcmp(argv[1], "erase") == 0) {
+        if (!parse_slot(argv[2], &slot)) { return; }
+        rc = recipe_erase(slot);
+        uart2_puts(rc == RECIPE_OK ? "Erased.\n" : "Erase failed.\n");
+    } else if (argc == 9U && strcmp(argv[1], "save") == 0) {
+        recipe_cmd_save(argv);
+    } else {
+        uart2_puts("Usage: recipe | recipe show N | recipe erase N |\n"
+                   "       recipe save N NAME T P G1 G2 S   (e.g. recipe save 1 OXIDE 400 2000 50 400 120)\n");
+    }
+}
+
+/* ---------------- Data log (SPI flash) ---------------- */
+static void print_log_record(const log_record_t *r)
+{
+    uart2_puts("  t=");      uart2_put_uint(r->uptime_s);
+    uart2_puts("s  T=");     print_tenths(r->temp_dc);
+    uart2_puts("C  P=");     print_thousandths(r->pressure_mtorr);
+    uart2_puts("  H=");      print_tenths(r->heater_permille);
+    uart2_puts("%  SiH4=");  uart2_put_uint(r->gas1_sccm);
+    uart2_puts("  N2O=");    uart2_put_uint(r->gas2_sccm);
+    uart2_puts("  faults="); print_hex(r->faults, 2U);
+    uart2_puts("\n");
+}
+
+static void cmd_log(const char *cmd)
+{
+    uint32_t n, first, i;
+    log_record_t r;
+
+    if (strcmp(cmd, "log erase") == 0) {
+        if (datalog_ok()) {
+            datalog_erase_all();
+            uart2_puts("Erasing data log in the background...\n");
+        } else {
+            uart2_puts("No flash.\n");
+        }
+        return;
+    }
+    if (strcmp(cmd, "log") != 0) {
+        uart2_puts("Usage: log | log erase\n");
+        return;
+    }
+    uart2_puts("Flash JEDEC ID : ");
+    print_hex(datalog_flash_id(), 6U);
+    uart2_puts(datalog_ok() ? " (Micron)\n" : " (not found)\n");
+    if (datalog_busy_erasing()) {
+        uart2_puts("Erase in progress...\n");
+        return;
+    }
+    n = datalog_count();
+    uart2_puts("Records        : ");
+    uart2_put_uint(n);
+    uart2_puts(" / ");
+    uart2_put_uint(datalog_capacity());
+    uart2_puts("\n");
+    first = (n > 5U) ? (n - 5U) : 0U;           /* show the newest 5 */
+    for (i = first; i < n; i++) {
+        if (datalog_get(i, &r)) {
+            print_log_record(&r);
+        }
     }
 }
 
@@ -279,6 +495,10 @@ static void run_command(const char *cmd)
         cmd_status();
     } else if (strcmp(cmd, "clear") == 0) {
         cmd_clear();
+    } else if (strncmp(cmd, "recipe", 6) == 0 && (cmd[6] == '\0' || cmd[6] == ' ')) {
+        cmd_recipe(cmd);
+    } else if (strncmp(cmd, "log", 3) == 0 && (cmd[3] == '\0' || cmd[3] == ' ')) {
+        cmd_log(cmd);
     } else if (strcmp(cmd, "sensors") == 0) {
         cmd_sensors();
     } else if (strcmp(cmd, "heater") == 0) {

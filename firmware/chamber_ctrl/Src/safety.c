@@ -70,12 +70,17 @@ static uint8_t read_estop_raw(void) { return (uint8_t)((GPIO_IDR(GPIOC_BASE) >> 
 static uint8_t read_door_raw(void)  { return (uint8_t)((GPIO_IDR(GPIOC_BASE) >> DOOR_PIN)  & 1UL); }
 
 /* ---------------- Interrupt handlers ---------------- */
-/* Names must match the vector table in the startup file exactly */
+/* Names must match the vector table in the startup file exactly.
+ * Glitch filter: an edge only trips the fault if the input is still active
+ * when we look at it. A real press or door opening lasts far longer than the
+ * microsecond it takes to get here; an electrical glitch does not. */
 void EXTI0_IRQHandler(void)
 {
     if (EXTI_PR & (1UL << ESTOP_PIN)) {
         EXTI_PR = (1UL << ESTOP_PIN);  /* clear pending flag: write 1 to clear */
-        trip(FAULT_ESTOP);
+        if (read_estop_raw()) {
+            trip(FAULT_ESTOP);
+        }
     }
 }
 
@@ -83,7 +88,9 @@ void EXTI1_IRQHandler(void)
 {
     if (EXTI_PR & (1UL << DOOR_PIN)) {
         EXTI_PR = (1UL << DOOR_PIN);
-        trip(FAULT_DOOR);
+        if (read_door_raw()) {
+            trip(FAULT_DOOR);
+        }
     }
 }
 

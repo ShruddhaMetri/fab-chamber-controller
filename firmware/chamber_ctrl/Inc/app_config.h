@@ -6,7 +6,7 @@
 #define APP_CONFIG_H
 
 #define FW_NAME                "Fab Chamber Controller"
-#define FW_VERSION             "0.7"
+#define FW_VERSION             "0.8"
 
 #define CPU_CLOCK_HZ           16000000UL   /* internal HSI oscillator after reset */
 #define UART_BAUD              115200UL
@@ -33,5 +33,8 @@
  * this share of full scale, for at most this many 100 ms readings (2 s) */
 #define GASFLOW_TOLERANCE_PCT  10U
 #define GASFLOW_SAMPLES        20U
+
+/* Data logger: one record to SPI flash this often */
+#define LOG_PERIOD_MS          1000UL
 
 #endif /* APP_CONFIG_H */
