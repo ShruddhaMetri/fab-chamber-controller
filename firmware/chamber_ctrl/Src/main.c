@@ -1,6 +1,6 @@
 /*
- * Fab Chamber Controller - Step 10
- * Closed-loop PID temperature control of the chamber heater.
+ * Fab Chamber Controller - Step 11
+ * The main loop is replaced by FreeRTOS tasks (see rtos_app.c).
  * Target: STM32F407VG (STM32F4 Discovery), simulated in Renode
  */
 #include <stdint.h>
@@ -8,7 +8,6 @@
 #include "gpio.h"
 #include "systick.h"
 #include "uart.h"
-#include "console.h"
 #include "safety.h"
 #include "actuators.h"
 #include "sensors.h"
@@ -16,15 +15,11 @@
 #include "i2c.h"
 #include "datalog.h"
 #include "temp_ctrl.h"
+#include "rtos_app.h"
 
 int main(void)
 {
-    uint32_t last_heartbeat = 0;
-    uint32_t last_activity  = 0;
-    uint32_t last_safety    = 0;
-    uint32_t last_sensors   = 0;
-
-    /* 1. Initialise hardware.
+    /* 1. Initialise hardware - exactly as before.
      *    LEDs and actuators come before safety: a fault found at boot
      *    switches on the red LED and forces the actuators safe. */
     led_init(LED_GREEN);
@@ -43,43 +38,14 @@ int main(void)
     /* 2. Boot banner */
     uart2_puts("\n=================================\n");
     uart2_puts(" " FW_NAME " v" FW_VERSION "\n");
-    uart2_puts(" PID temperature control\n");
+    uart2_puts(" FreeRTOS: 5 tasks\n");
     uart2_puts("=================================\n");
     datalog_init();          /* prints how many records it found */
-    console_init();
 
-    /* 3. Main loop: five independent jobs, none of them blocks */
-    while (1) {
-        uint32_t now = millis();
+    /* 3. Hand over to the RTOS. The old while(1) loop is gone: each of its
+     *    jobs is now a task, and the kernel's scheduler decides which one
+     *    runs. This call never returns. */
+    rtos_app_start();
 
-        /* Job 1: safety inputs every 5 ms (debounce + report) */
-        if ((now - last_safety) >= SAFETY_SAMPLE_MS) {
-            last_safety += SAFETY_SAMPLE_MS;
-            safety_poll();
-        }
-
-        /* Job 2: every 100 ms: sensors (temperature, pressure) and gas flow check */
-        if ((now - last_sensors) >= SENSOR_PERIOD_MS) {
-            last_sensors += SENSOR_PERIOD_MS;
-            gas_poll();       /* uses the scan that sensors_poll() started 100 ms ago */
-            sensors_poll();   /* reads that scan, then starts the next one            */
-            tc_poll();        /* PID: new heater power from the new temperature       */
-            datalog_poll();   /* writes one record per second, or continues an erase  */
-        }
-
-        /* Job 3: heartbeat LED every 1000 ms */
-        if ((now - last_heartbeat) >= HEARTBEAT_PERIOD_MS) {
-            last_heartbeat += HEARTBEAT_PERIOD_MS;
-            led_toggle(LED_GREEN);
-        }
-
-        /* Job 4: activity LED every 250 ms */
-        if ((now - last_activity) >= ACTIVITY_PERIOD_MS) {
-            last_activity += ACTIVITY_PERIOD_MS;
-            led_toggle(LED_ORANGE);
-        }
-
-        /* Job 5: handle any typed characters */
-        console_poll();
-    }
+    return 0;                /* never reached */
 }

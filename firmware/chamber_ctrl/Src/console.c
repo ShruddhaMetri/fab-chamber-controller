@@ -2,6 +2,11 @@
  * console.c
  * Reads characters from the UART, builds a line, and runs the command
  * when Enter is pressed.
+ *
+ * Step 11: runs as the lowest-priority FreeRTOS task (Console). New commands:
+ *   tasks    - list the tasks, their stacks and the control-loop timing
+ *   busy N   - keep the console busy for N ms, to show that the PID and
+ *              the safety task keep running on time anyway
  */
 #include <string.h>
 #include "console.h"
@@ -18,6 +23,7 @@
 #include "recipe.h"
 #include "datalog.h"
 #include "temp_ctrl.h"
+#include "rtos_app.h"
 
 #define LINE_MAX   64U
 
@@ -56,6 +62,8 @@ static void cmd_help(void)
     uart2_puts("  log                             data-log summary and last records\n");
     uart2_puts("  log erase                       erase the data log\n");
     uart2_puts("  log csv                         print the whole log as CSV (for Excel)\n");
+    uart2_puts("  tasks     FreeRTOS tasks, stack use, control-loop timing\n");
+    uart2_puts("  busy N    keep the console busy for N ms (RTOS demo)\n");
     uart2_puts("  version   firmware version\n");
     uart2_puts("  led on    blue LED on\n");
     uart2_puts("  led off   blue LED off\n");
@@ -298,7 +306,18 @@ static void print_log_record(const log_record_t *r)
     uart2_puts("\n");
 }
 
+static void cmd_log_locked(const char *cmd);
+
+/* The flash is shared with the Logger task: hold the flash mutex for the
+ * whole command so the two never talk to the chip at the same time. */
 static void cmd_log(const char *cmd)
+{
+    flash_lock();
+    cmd_log_locked(cmd);
+    flash_unlock();
+}
+
+static void cmd_log_locked(const char *cmd)
 {
     uint32_t n, first, i;
     log_record_t r;
@@ -587,6 +606,22 @@ static void cmd_clear(void)
     }
 }
 
+/* Simulates a slow command (a busy-wait, NOT vTaskDelay), so the CPU is
+ * really kept busy. Higher-priority tasks still interrupt it on time. */
+static void cmd_busy(const char *arg)
+{
+    uint32_t ms;
+    if (!parse_uint(arg, 5000U, &ms)) {
+        uart2_puts("Usage: busy N   (N = 0-5000 ms)\n");
+        return;
+    }
+    uart2_puts("Console busy for ");
+    uart2_put_uint(ms);
+    uart2_puts(" ms...\n");
+    delay_ms(ms);
+    uart2_puts("Done. Type 'tasks' to see that the Control period stayed 100 ms.\n");
+}
+
 static void cmd_version(void)
 {
     uart2_puts(FW_NAME " v" FW_VERSION "\n");
@@ -632,6 +667,10 @@ static void run_command(const char *cmd)
         cmd_gas(GAS_MFC1, cmd + 4);    /* parse_uint skips the space */
     } else if (strncmp(cmd, "gas2", 4) == 0) {
         cmd_gas(GAS_MFC2, cmd + 4);
+    } else if (strcmp(cmd, "tasks") == 0) {
+        rtos_print_tasks();
+    } else if (strncmp(cmd, "busy", 4) == 0 && (cmd[4] == '\0' || cmd[4] == ' ')) {
+        cmd_busy(cmd + 4);
     } else if (strcmp(cmd, "version") == 0) {
         cmd_version();
     } else if (strcmp(cmd, "led on") == 0) {

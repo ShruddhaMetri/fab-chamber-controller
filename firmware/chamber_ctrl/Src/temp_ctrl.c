@@ -22,6 +22,12 @@
  *     the current temperature with an empty integral.
  *   - Fault: any latched fault switches AUTO off. The operator must clear the
  *     fault and set the temperature again; it never restarts on its own.
+ *
+ * Step 11 (FreeRTOS): tc_poll() runs in the Control task, while the tc_set_*
+ * functions are called from the Console task. The Control task has the higher
+ * priority, so it can interrupt the console in the middle of changing several
+ * variables (setpoint, integral, mode) and see a half-updated state. Each
+ * setter therefore changes everything inside a short critical section.
  */
 #include "temp_ctrl.h"
 #include "sensors.h"
@@ -29,6 +35,8 @@
 #include "safety.h"
 #include "uart.h"
 #include "app_config.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #define DT_MS          SENSOR_PERIOD_MS          /* 100 ms between updates     */
 #define OUT_MAX        (1000L * 1000L)           /* 100.0 % in milli-per-mille */
@@ -69,21 +77,24 @@ void tc_init(void)
 
 int tc_set_setpoint_c(uint32_t c)
 {
+    int ok = 1;
+
+    taskENTER_CRITICAL();                        /* Control task cannot run now */
     if (c == 0U) {                               /* back to MANUAL */
         stop_auto();
         (void)heater_set_permille(0U);
-        return 1;
+    } else if ((c * 10U) > OVERTEMP_RESET_DC || safety_is_faulted()) {
+        ok = 0;                                  /* above safe limit, or faulted */
+    } else {
+        if (!auto_on) {                          /* bumpless start */
+            i_acc     = 0;
+            prev_meas = (int32_t)sensors_temp_dc();
+        }
+        setpoint_dc = c * 10U;
+        auto_on     = 1;
     }
-    if ((c * 10U) > OVERTEMP_RESET_DC || safety_is_faulted()) {
-        return 0;                                /* above safe limit, or faulted */
-    }
-    if (!auto_on) {                              /* bumpless start */
-        i_acc     = 0;
-        prev_meas = (int32_t)sensors_temp_dc();
-    }
-    setpoint_dc = c * 10U;
-    auto_on     = 1;
-    return 1;
+    taskEXIT_CRITICAL();
+    return ok;
 }
 
 void tc_poll(void)
@@ -128,16 +139,22 @@ uint32_t tc_setpoint_dc(void)  { return auto_on ? setpoint_dc : 0U; }
 
 void tc_set_gains(uint32_t kp, uint32_t ki, uint32_t kd)
 {
+    taskENTER_CRITICAL();                        /* all three gains change together */
     kp_m = kp;  ki_m = ki;  kd_m = kd;
     i_acc = 0;                                   /* restart integral with new gains */
+    taskEXIT_CRITICAL();
 }
 
 void tc_get_gains(uint32_t *kp, uint32_t *ki, uint32_t *kd)
 {
+    taskENTER_CRITICAL();
     *kp = kp_m;  *ki = ki_m;  *kd = kd_m;
+    taskEXIT_CRITICAL();
 }
 
 void tc_get_terms(int32_t *p, int32_t *i, int32_t *d, int32_t *out)
 {
+    taskENTER_CRITICAL();                        /* all four from the SAME update */
     *p = last_p;  *i = last_i;  *d = last_d;  *out = last_out;
+    taskEXIT_CRITICAL();
 }

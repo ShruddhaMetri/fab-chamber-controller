@@ -5,6 +5,13 @@ using sysbus
 mach create "chamber_ctrl"
 machine LoadPlatformDescription @platforms/boards/stm32f4_discovery-kit.repl
 
+# Step 11: the board file assumes the SysTick timer is clocked at 72 MHz, but
+# our firmware runs the chip on its 16 MHz internal oscillator (no PLL set up).
+# Without this line, firmware time (millis, FreeRTOS ticks) ran 4.5x faster
+# than Renode's simulated time. A chip reset restores the 72 MHz default, so
+# the same line is also in the reset macro below.
+sysbus.nvic Frequency 16000000
+
 # Step 5: two virtual switches wired to the controller's safety inputs
 machine LoadPlatformDescriptionFromString "estop: Miscellaneous.Button @ gpioPortC 0 { -> gpioPortC@0 }"
 machine LoadPlatformDescriptionFromString "door: Miscellaneous.Button @ gpioPortC 1 { -> gpioPortC@1 }"
@@ -42,6 +49,7 @@ $bin?=@C:/embedded/fab-chamber-controller/firmware/chamber_ctrl/Debug/chamber_ct
 macro reset
 """
     sysbus LoadELF $bin
+    sysbus.nvic Frequency 16000000
     sysbus.adc1 FeedSample 128 14 -1
     sysbus.adc1 FeedSample 819 15 -1
     sysbus.adc1 FeedSample 0 12 -1
