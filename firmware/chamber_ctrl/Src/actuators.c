@@ -21,19 +21,27 @@ void actuators_init(void)
 
 int heater_set_percent(uint32_t percent)
 {
-    int ok = 1;
-
     if (percent > 100U) {
         percent = 100U;
+    }
+    return heater_set_permille(percent * 10U);   /* percent -> per-mille */
+}
+
+int heater_set_permille(uint32_t permille)
+{
+    int ok = 1;
+
+    if (permille > PWM_MAX_DUTY) {
+        permille = PWM_MAX_DUTY;
     }
     /* Critical section: the fault check and the register write must happen
      * together. Otherwise an e-stop interrupt between them could switch the
      * heater off, and this code would then switch it back on. */
     irq_disable();
-    if (safety_is_faulted() && (percent > 0U)) {
+    if (safety_is_faulted() && (permille > 0U)) {
         ok = 0;                       /* refuse to heat while a fault is latched */
     } else {
-        pwm_set_duty(HEATER_CH, percent * 10U);   /* percent -> per-mille */
+        pwm_set_duty(HEATER_CH, permille);
     }
     irq_enable();
     return ok;

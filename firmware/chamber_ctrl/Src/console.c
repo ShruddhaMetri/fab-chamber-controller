@@ -17,6 +17,7 @@
 #include "gas.h"
 #include "recipe.h"
 #include "datalog.h"
+#include "temp_ctrl.h"
 
 #define LINE_MAX   64U
 
@@ -41,7 +42,10 @@ static void cmd_help(void)
     uart2_puts("  status    uptime, safety inputs, fault and LEDs\n");
     uart2_puts("  clear     reset a fault (only if e-stop and door are safe)\n");
     uart2_puts("  sensors   raw ADC counts and converted readings\n");
-    uart2_puts("  heater N  set heater power, N = 0-100 %\n");
+    uart2_puts("  temp N    AUTO: hold chamber at N C with PID (0 = off, MANUAL)\n");
+    uart2_puts("  pid       show PID setpoint, terms and gains\n");
+    uart2_puts("  pid P I D set gains in thousandths, e.g. pid 2000 200 2000\n");
+    uart2_puts("  heater N  MANUAL: set heater power, N = 0-100 %\n");
     uart2_puts("  valve N   set throttle-valve opening, N = 0-100 %\n");
     uart2_puts("  gas1 N    SiH4 flow, N = 0-100 sccm\n");
     uart2_puts("  gas2 N    N2O flow,  N = 0-1000 sccm\n");
@@ -51,6 +55,7 @@ static void cmd_help(void)
     uart2_puts("  recipe erase N                  delete recipe N\n");
     uart2_puts("  log                             data-log summary and last records\n");
     uart2_puts("  log erase                       erase the data log\n");
+    uart2_puts("  log csv                         print the whole log as CSV (for Excel)\n");
     uart2_puts("  version   firmware version\n");
     uart2_puts("  led on    blue LED on\n");
     uart2_puts("  led off   blue LED off\n");
@@ -307,8 +312,25 @@ static void cmd_log(const char *cmd)
         }
         return;
     }
+    if (strcmp(cmd, "log csv") == 0) {
+        /* Comma-separated values: paste into Excel or any plotting tool */
+        n = datalog_count();
+        uart2_puts("time_s,temp_C,pressure_Torr,heater_pct,sih4_sccm,n2o_sccm,faults\n");
+        for (i = 0U; i < n; i++) {
+            if (datalog_get(i, &r)) {
+                uart2_put_uint(r.uptime_s);        uart2_putc(',');
+                print_tenths(r.temp_dc);           uart2_putc(',');
+                print_thousandths(r.pressure_mtorr); uart2_putc(',');
+                print_tenths(r.heater_permille);   uart2_putc(',');
+                uart2_put_uint(r.gas1_sccm);       uart2_putc(',');
+                uart2_put_uint(r.gas2_sccm);       uart2_putc(',');
+                uart2_put_uint(r.faults);          uart2_puts("\n");
+            }
+        }
+        return;
+    }
     if (strcmp(cmd, "log") != 0) {
-        uart2_puts("Usage: log | log erase\n");
+        uart2_puts("Usage: log | log erase | log csv\n");
         return;
     }
     uart2_puts("Flash JEDEC ID : ");
@@ -330,6 +352,87 @@ static void cmd_log(const char *cmd)
             print_log_record(&r);
         }
     }
+}
+
+/* ---------------- Temperature control (PID) ---------------- */
+static void print_int(int32_t v)               /* signed number */
+{
+    if (v < 0) {
+        uart2_putc('-');
+        v = -v;
+    }
+    uart2_put_uint((uint32_t)v);
+}
+
+static void print_signed_tenths(int32_t v)     /* e.g. -125 -> "-12.5" */
+{
+    if (v < 0) {
+        uart2_putc('-');
+        v = -v;
+    }
+    print_tenths((uint32_t)v);
+}
+
+static void cmd_temp(const char *arg)
+{
+    uint32_t c;
+    if (!parse_uint(arg, 800U, &c)) {
+        uart2_puts("Usage: temp N   (N = 1-480 C, or 0 for MANUAL)\n");
+    } else if (tc_set_setpoint_c(c)) {
+        if (c == 0U) {
+            uart2_puts("MANUAL mode. Heater off.\n");
+        } else {
+            uart2_puts("AUTO: holding ");
+            uart2_put_uint(c);
+            uart2_puts(" C\n");
+        }
+    } else if (safety_is_faulted()) {
+        uart2_puts("Refused: fault active. Clear it first.\n");
+    } else {
+        uart2_puts("Refused: maximum is 480 C (over-temperature reset limit).\n");
+    }
+}
+
+static void cmd_pid(const char *cmd)
+{
+    char     buf[LINE_MAX];
+    char    *argv[MAX_ARGS];
+    uint32_t argc, kp, ki, kd;
+    int32_t  p, i, d, out;
+
+    memcpy(buf, cmd, strlen(cmd) + 1U);
+    argc = split_args(buf, argv, MAX_ARGS);
+
+    if (argc == 4U) {
+        if (!parse_uint(argv[1], TC_GAIN_MAX, &kp) ||
+            !parse_uint(argv[2], TC_GAIN_MAX, &ki) ||
+            !parse_uint(argv[3], TC_GAIN_MAX, &kd)) {
+            uart2_puts("Each gain must be 0-50000 (thousandths).\n");
+            return;
+        }
+        tc_set_gains(kp, ki, kd);
+        uart2_puts("Gains updated.\n");
+    } else if (argc != 1U) {
+        uart2_puts("Usage: pid | pid P I D\n");
+        return;
+    }
+
+    tc_get_gains(&kp, &ki, &kd);
+    tc_get_terms(&p, &i, &d, &out);
+    uart2_puts("Mode       : ");
+    uart2_puts(tc_is_auto() ? "AUTO\n" : "MANUAL\n");
+    uart2_puts("Setpoint   : "); print_tenths(tc_setpoint_dc());   uart2_puts(" C\n");
+    uart2_puts("Measured   : "); print_tenths(sensors_temp_dc());  uart2_puts(" C\n");
+    uart2_puts("Error      : ");
+    print_signed_tenths(tc_is_auto() ? ((int32_t)tc_setpoint_dc() - (int32_t)sensors_temp_dc()) : 0);
+    uart2_puts(" C\n");
+    uart2_puts("P term     : "); print_signed_tenths(p);   uart2_puts(" %\n");
+    uart2_puts("I term     : "); print_signed_tenths(i);   uart2_puts(" %\n");
+    uart2_puts("D term     : "); print_signed_tenths(d);   uart2_puts(" %\n");
+    uart2_puts("Heater out : "); print_signed_tenths(out); uart2_puts(" %\n");
+    uart2_puts("Gains      : Kp ");
+    print_int((int32_t)kp); uart2_puts("  Ki "); print_int((int32_t)ki);
+    uart2_puts("  Kd "); print_int((int32_t)kd); uart2_puts("  (thousandths)\n");
 }
 
 static void cmd_sensors(void)
@@ -388,6 +491,10 @@ static int parse_percent(const char *s, uint32_t *out)
 static void cmd_heater(const char *arg)
 {
     uint32_t pct;
+    if (tc_is_auto()) {
+        uart2_puts("Refused: PID is controlling the heater. Type 'temp 0' for MANUAL.\n");
+        return;
+    }
     if (!parse_percent(arg, &pct)) {
         uart2_puts("Usage: heater N   (N = 0-100)\n");
     } else if (heater_set_percent(pct)) {
@@ -443,6 +550,14 @@ static void cmd_status(void)
     uart2_puts("Temperature: ");
     print_tenths(sensors_temp_dc());
     uart2_puts(" C\n");
+    uart2_puts("Control    : ");
+    if (tc_is_auto()) {
+        uart2_puts("AUTO (PID), setpoint ");
+        print_tenths(tc_setpoint_dc());
+        uart2_puts(" C\n");
+    } else {
+        uart2_puts("MANUAL\n");
+    }
     uart2_puts("Pressure   : ");
     print_thousandths(sensors_pressure_mtorr());
     uart2_puts(" Torr\n");
@@ -495,6 +610,10 @@ static void run_command(const char *cmd)
         cmd_status();
     } else if (strcmp(cmd, "clear") == 0) {
         cmd_clear();
+    } else if (strncmp(cmd, "temp", 4) == 0 && (cmd[4] == '\0' || cmd[4] == ' ')) {
+        cmd_temp(cmd + 4);
+    } else if (strncmp(cmd, "pid", 3) == 0 && (cmd[3] == '\0' || cmd[3] == ' ')) {
+        cmd_pid(cmd);
     } else if (strncmp(cmd, "recipe", 6) == 0 && (cmd[6] == '\0' || cmd[6] == ' ')) {
         cmd_recipe(cmd);
     } else if (strncmp(cmd, "log", 3) == 0 && (cmd[3] == '\0' || cmd[3] == ' ')) {

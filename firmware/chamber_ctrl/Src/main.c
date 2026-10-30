@@ -1,7 +1,6 @@
 /*
- * Fab Chamber Controller - Step 9
- * Recipe storage in an I2C EEPROM (with CRC) and a 1 Hz process
- * data logger in SPI flash.
+ * Fab Chamber Controller - Step 10
+ * Closed-loop PID temperature control of the chamber heater.
  * Target: STM32F407VG (STM32F4 Discovery), simulated in Renode
  */
 #include <stdint.h>
@@ -16,6 +15,7 @@
 #include "gas.h"
 #include "i2c.h"
 #include "datalog.h"
+#include "temp_ctrl.h"
 
 int main(void)
 {
@@ -38,11 +38,12 @@ int main(void)
     sensors_init();
     safety_init();
     i2c1_init();
+    tc_init();
 
     /* 2. Boot banner */
     uart2_puts("\n=================================\n");
     uart2_puts(" " FW_NAME " v" FW_VERSION "\n");
-    uart2_puts(" Recipes (I2C EEPROM), data log (SPI flash)\n");
+    uart2_puts(" PID temperature control\n");
     uart2_puts("=================================\n");
     datalog_init();          /* prints how many records it found */
     console_init();
@@ -62,6 +63,7 @@ int main(void)
             last_sensors += SENSOR_PERIOD_MS;
             gas_poll();       /* uses the scan that sensors_poll() started 100 ms ago */
             sensors_poll();   /* reads that scan, then starts the next one            */
+            tc_poll();        /* PID: new heater power from the new temperature       */
             datalog_poll();   /* writes one record per second, or continues an erase  */
         }
 

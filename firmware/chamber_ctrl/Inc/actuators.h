@@ -15,6 +15,9 @@ void     actuators_init(void);
 int      heater_set_percent(uint32_t percent);
 void     valve_set_percent(uint32_t percent);
 
+/* Same, in per-mille (0-1000 = 0.0-100.0 %), used by the PID controller */
+int      heater_set_permille(uint32_t permille);
+
 uint32_t heater_get_permille(void);
 uint32_t valve_get_permille(void);
 

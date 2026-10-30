@@ -24,6 +24,12 @@ machine LoadPlatformDescriptionFromString "eeprom: Memory.GenericI2cEeprom @ i2c
 machine LoadPlatformDescriptionFromString "logflash: SPI.Micron_MT25Q @ spi2 { underlyingMemory: logflash_mem }; logflash_mem: Memory.MappedMemory { size: 0x100000 }"
 machine LoadPlatformDescriptionFromString "gpioPortB: { 12 -> logflash@0 }"
 
+# Step 10: chamber physics. Every time the firmware starts an ADC scan (it
+# writes ADC1_CR2), chamber_model.py reads the heater PWM duty, advances the
+# chamber temperature by 100 ms and feeds it to the ADC temperature channel.
+include @C:/embedded/fab-chamber-controller/renode/chamber_model.py
+sysbus AddWatchpointHook 0x40012008 DoubleWord Write "import sys; sys.chamber_step(self, monitor, value)"
+
 showAnalyzer sysbus.usart2
 
 $bin?=@C:/embedded/fab-chamber-controller/firmware/chamber_ctrl/Debug/chamber_ctrl.elf
