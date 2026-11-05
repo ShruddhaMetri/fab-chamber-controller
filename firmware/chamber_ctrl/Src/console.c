@@ -9,6 +9,8 @@
  *              the safety task keep running on time anyway
  *
  * Step 12: run / abort / proc control the automatic recipe (process.c).
+ * Step 13: 'can' shows the CAN link; recipe commands hold the storage mutex
+ *          because the CANlink task can now also read recipes.
  * While a recipe runs, manual commands that move the chamber (temp, heater,
  * valve, gas, pid gains) are refused: one master at a time.
  */
@@ -29,6 +31,7 @@
 #include "temp_ctrl.h"
 #include "rtos_app.h"
 #include "process.h"
+#include "canlink.h"
 
 #define LINE_MAX   64U
 
@@ -70,6 +73,7 @@ static void cmd_help(void)
     uart2_puts("  run N     run recipe N automatically (pump, leak check, heat, gas, deposit...)\n");
     uart2_puts("  abort     stop the running recipe and make the chamber safe\n");
     uart2_puts("  proc      show the recipe step, timers and pressure control\n");
+    uart2_puts("  can       CAN bus statistics and fab-host link\n");
     uart2_puts("  tasks     FreeRTOS tasks, stack use, control-loop timing\n");
     uart2_puts("  busy N    keep the console busy for N ms (RTOS demo)\n");
     uart2_puts("  version   firmware version\n");
@@ -569,7 +573,9 @@ static void cmd_run(const char *arg)
     /* Load and check the recipe HERE, in the console task: the EEPROM is only
      * ever used by this task, so it needs no mutex. The Process task gets a
      * verified copy through the queue. */
+    storage_lock();
     rc = recipe_load(slot - 1U, &r);
+    storage_unlock();
     if (rc != RECIPE_OK) {
         uart2_puts("Cannot run: recipe ");
         uart2_put_uint(slot);
@@ -755,8 +761,12 @@ static void run_command(const char *cmd)
         cmd_abort();
     } else if (strcmp(cmd, "proc") == 0) {
         cmd_proc();
+    } else if (strcmp(cmd, "can") == 0) {
+        canlink_print();
     } else if (strncmp(cmd, "recipe", 6) == 0 && (cmd[6] == '\0' || cmd[6] == ' ')) {
+        storage_lock();                /* EEPROM shared with the CANlink task */
         cmd_recipe(cmd);
+        storage_unlock();
     } else if (strncmp(cmd, "log", 3) == 0 && (cmd[3] == '\0' || cmd[3] == ' ')) {
         cmd_log(cmd);
     } else if (strcmp(cmd, "sensors") == 0) {

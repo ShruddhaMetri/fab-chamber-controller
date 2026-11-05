@@ -29,11 +29,14 @@
 #include "datalog.h"
 #include "actuators.h"
 #include "process.h"
+#include "can.h"
+#include "canlink.h"
 
 /* ---------------- Priorities (higher number = more urgent) ---------------- */
 #define PRIO_SAFETY       4U
 #define PRIO_CONTROL      3U
 #define PRIO_PROCESS      2U
+#define PRIO_CANLINK      2U
 #define PRIO_LOGGER       2U
 #define PRIO_CONSOLE      1U
 #define PRIO_HEARTBEAT    1U
@@ -44,6 +47,7 @@
 #define STACK_SAFETY      256U
 #define STACK_CONTROL     384U
 #define STACK_PROCESS     512U
+#define STACK_CANLINK     384U
 #define STACK_LOGGER      320U
 #define STACK_CONSOLE     768U
 #define STACK_HEARTBEAT   128U
@@ -51,7 +55,8 @@
 #define HEARTBEAT_TICK_MS 250U
 
 /* ---------------- Shared resources ---------------- */
-static SemaphoreHandle_t g_flash_mutex = NULL;
+static SemaphoreHandle_t g_flash_mutex   = NULL;
+static SemaphoreHandle_t g_storage_mutex = NULL;   /* I2C EEPROM (recipes) */
 
 /* Control-loop timing, measured by the Control task itself */
 static volatile uint32_t g_ctrl_cycles   = 0U;
@@ -67,6 +72,16 @@ void flash_lock(void)
 void flash_unlock(void)
 {
     (void)xSemaphoreGive(g_flash_mutex);
+}
+
+void storage_lock(void)
+{
+    (void)xSemaphoreTake(g_storage_mutex, portMAX_DELAY);
+}
+
+void storage_unlock(void)
+{
+    (void)xSemaphoreGive(g_storage_mutex);
 }
 
 /* ---------------- Task bodies ---------------- */
@@ -166,11 +181,15 @@ void rtos_app_start(void)
 
     g_flash_mutex = xSemaphoreCreateMutex();
     configASSERT(g_flash_mutex != NULL);
+    g_storage_mutex = xSemaphoreCreateMutex();
+    configASSERT(g_storage_mutex != NULL);
     process_init();                       /* the console -> process command queue */
+    (void)can1_rtos_init();               /* CAN receive queue + its interrupt     */
 
     (void)create(safety_task,    "Safety",    STACK_SAFETY,    PRIO_SAFETY);
     (void)create(control_task,   "Control",   STACK_CONTROL,   PRIO_CONTROL);
     (void)create(process_task,   "Process",   STACK_PROCESS,   PRIO_PROCESS);
+    (void)create(canlink_task,   "CANlink",   STACK_CANLINK,   PRIO_CANLINK);
     (void)create(logger_task,    "Logger",    STACK_LOGGER,    PRIO_LOGGER);
     console = create(console_task, "Console", STACK_CONSOLE,   PRIO_CONSOLE);
     (void)create(heartbeat_task, "Heartbeat", STACK_HEARTBEAT, PRIO_HEARTBEAT);
@@ -206,10 +225,10 @@ static void pad(const char *s, uint32_t width)
 
 void rtos_print_tasks(void)
 {
-    TaskStatus_t list[8];
+    TaskStatus_t list[10];
     UBaseType_t  n, i;
 
-    n = uxTaskGetSystemState(list, 8U, NULL);
+    n = uxTaskGetSystemState(list, 10U, NULL);
 
     uart2_puts("Task       Prio  State     Stack free (lowest ever)\n");
     for (i = 0U; i < n; i++) {

@@ -1,6 +1,6 @@
 /*
- * Fab Chamber Controller - Step 12
- * FreeRTOS tasks (rtos_app.c) + automatic recipe execution (process.c).
+ * Fab Chamber Controller - Step 13
+ * FreeRTOS tasks, automatic recipes, and a CAN link to the fab host.
  * Target: STM32F407VG (STM32F4 Discovery), simulated in Renode
  */
 #include <stdint.h>
@@ -16,6 +16,7 @@
 #include "datalog.h"
 #include "temp_ctrl.h"
 #include "rtos_app.h"
+#include "can.h"
 
 int main(void)
 {
@@ -33,12 +34,13 @@ int main(void)
     sensors_init();
     safety_init();
     i2c1_init();
+    can1_init();             /* Step 13: CAN bus to the fab host */
     tc_init();
 
     /* 2. Boot banner */
     uart2_puts("\n=================================\n");
     uart2_puts(" " FW_NAME " v" FW_VERSION "\n");
-    uart2_puts(" FreeRTOS + recipe automation\n");
+    uart2_puts(" FreeRTOS + recipes + CAN host link\n");
     uart2_puts("=================================\n");
     datalog_init();          /* prints how many records it found */
 

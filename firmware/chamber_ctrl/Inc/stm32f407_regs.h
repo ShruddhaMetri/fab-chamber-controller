@@ -196,6 +196,51 @@
 #define EXTI0_IRQn             6U           /* EXTI line 0 interrupt number */
 #define EXTI1_IRQn             7U           /* EXTI line 1 interrupt number */
 #define USART2_IRQn            38U          /* USART2's interrupt number    */
+#define CAN1_RX0_IRQn          20U          /* CAN1 receive FIFO 0          */
+
+/* ---------------- CAN1 (bxCAN, Step 13) ---------------- */
+#define RCC_APB1ENR_CAN1EN     (1UL << 25)
+#define CAN1_BASE              0x40006400UL
+#define CAN_MCR                REG32(CAN1_BASE + 0x000)  /* master control            */
+#define CAN_MSR                REG32(CAN1_BASE + 0x004)  /* master status             */
+#define CAN_TSR                REG32(CAN1_BASE + 0x008)  /* transmit status           */
+#define CAN_RF0R               REG32(CAN1_BASE + 0x00C)  /* receive FIFO 0            */
+#define CAN_IER                REG32(CAN1_BASE + 0x014)  /* interrupt enable          */
+#define CAN_ESR                REG32(CAN1_BASE + 0x018)  /* error status              */
+#define CAN_BTR                REG32(CAN1_BASE + 0x01C)  /* bit timing                */
+/* Three transmit mailboxes (n = 0..2), 16 bytes apart */
+#define CAN_TIR(n)             REG32(CAN1_BASE + 0x180 + 0x10 * (n))  /* identifier  */
+#define CAN_TDTR(n)            REG32(CAN1_BASE + 0x184 + 0x10 * (n))  /* length      */
+#define CAN_TDLR(n)            REG32(CAN1_BASE + 0x188 + 0x10 * (n))  /* bytes 0-3   */
+#define CAN_TDHR(n)            REG32(CAN1_BASE + 0x18C + 0x10 * (n))  /* bytes 4-7   */
+/* Receive FIFO 0 output mailbox */
+#define CAN_RI0R               REG32(CAN1_BASE + 0x1B0)
+#define CAN_RDT0R              REG32(CAN1_BASE + 0x1B4)
+#define CAN_RDL0R              REG32(CAN1_BASE + 0x1B8)
+#define CAN_RDH0R              REG32(CAN1_BASE + 0x1BC)
+/* Acceptance filters */
+#define CAN_FMR                REG32(CAN1_BASE + 0x200)  /* filter master             */
+#define CAN_FM1R               REG32(CAN1_BASE + 0x204)  /* 0 = mask mode             */
+#define CAN_FS1R               REG32(CAN1_BASE + 0x20C)  /* 1 = 32-bit scale          */
+#define CAN_FFA1R              REG32(CAN1_BASE + 0x214)  /* 0 = to FIFO 0             */
+#define CAN_FA1R               REG32(CAN1_BASE + 0x21C)  /* 1 = filter active         */
+#define CAN_F0R1               REG32(CAN1_BASE + 0x240)  /* filter 0: identifier      */
+#define CAN_F0R2               REG32(CAN1_BASE + 0x244)  /* filter 0: mask            */
+
+#define CAN_MCR_INRQ           (1UL << 0)   /* request initialisation mode */
+#define CAN_MCR_SLEEP          (1UL << 1)
+#define CAN_MCR_TXFP           (1UL << 2)   /* send mailboxes in request order */
+#define CAN_MCR_ABOM           (1UL << 6)   /* recover from bus-off automatically */
+#define CAN_MSR_INAK           (1UL << 0)   /* "I am in initialisation mode" */
+#define CAN_TSR_TME0           (1UL << 26)  /* mailbox 0 empty (1, 2 follow) */
+#define CAN_RF0R_FMP0          (3UL << 0)   /* number of messages waiting */
+#define CAN_RF0R_FOVR0         (1UL << 4)   /* FIFO overrun: a message was lost */
+#define CAN_RF0R_RFOM0         (1UL << 5)   /* release the output mailbox */
+#define CAN_IER_FMPIE0         (1UL << 1)   /* interrupt when FIFO 0 has a message */
+#define CAN_TIR_TXRQ           (1UL << 0)   /* transmit request */
+#define CAN_FMR_FINIT          (1UL << 0)   /* filter initialisation mode */
+#define CAN_ESR_BOFF           (1UL << 2)   /* bus-off */
+#define CAN_ESR_EPVF           (1UL << 1)   /* error passive */
 
 /* ---------------- SCB: system control ---------------- */
 #define SCB_AIRCR              REG32(0xE000ED0CUL)

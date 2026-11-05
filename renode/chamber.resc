@@ -38,6 +38,11 @@ machine LoadPlatformDescriptionFromString "gpioPortB: { 12 -> logflash@0 }"
 include @C:/embedded/fab-chamber-controller/renode/chamber_model.py
 sysbus AddWatchpointHook 0x40012008 DoubleWord Write "import sys; sys.chamber_step(self, monitor, value)"
 
+# Step 13: a simulated fab host on the CAN bus. It decodes every frame the
+# firmware sends on CAN1, sends a heartbeat, and adds the monitor commands
+# fabhost, fabevents, fabrun N, fababort, fabping and fablink 0/1.
+include @C:/embedded/fab-chamber-controller/renode/fab_host.py
+
 showAnalyzer sysbus.usart2
 
 $bin?=@C:/embedded/fab-chamber-controller/firmware/chamber_ctrl/Debug/chamber_ctrl.elf

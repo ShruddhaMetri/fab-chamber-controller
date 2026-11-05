@@ -7,6 +7,7 @@
  *   Safety     4 (top)   every 5 ms           debounce e-stop/door, report trips
  *   Control    3         every 100 ms         gas check, sensors, PID
  *   Process    2         100 ms + commands    recipe state machine, pressure control
+ *   CANlink    2         100 ms + CAN frames  status to the fab host, remote commands
  *   Logger     2         every 100 ms         data log to SPI flash
  *   Console    1         when a key arrives   commands
  *   Heartbeat  1         every 250 ms         status LEDs
@@ -28,6 +29,11 @@ void rtos_app_start(void);
  * Hold this lock for the whole of any flash access. */
 void flash_lock(void);
 void flash_unlock(void);
+
+/* The I2C EEPROM (recipes) is used by the Console and, from Step 13, by the
+ * CANlink task (remote 'run'). Hold this lock around every recipe access. */
+void storage_lock(void);
+void storage_unlock(void);
 
 /* For the 'tasks' command */
 void rtos_print_tasks(void);
