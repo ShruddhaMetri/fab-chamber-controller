@@ -1,2 +1,10 @@
+# Build outputs: generated from the sources, so they are not stored in Git
 Debug/
 Release/
+build/
+
+# IDE and OS clutter
+.metadata/
+*.launch
+Thumbs.db
+.DS_Store

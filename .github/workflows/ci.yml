@@ -1,0 +1,46 @@
+# .github/workflows/ci.yml
+# Continuous Integration: every time code is pushed to GitHub, a fresh Linux
+# machine downloads the repository and runs these jobs automatically.
+# The result (green tick or red cross) appears next to each commit, and the
+# README shows it as a badge.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit-tests:
+    name: Unit tests (PC)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Build and run the tests (with memory/overflow sanitizers)
+        run: make -C tests SAN=1
+
+  firmware:
+    name: Firmware build (ARM)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Install the GNU Arm toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi
+
+      - name: Build bootloader and application
+        run: make -C firmware
+
+      - name: Keep the built firmware as a downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            firmware/build/*.elf
+            firmware/build/*.bin
+            firmware/build/*.map
