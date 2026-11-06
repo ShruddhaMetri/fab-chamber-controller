@@ -6,7 +6,7 @@
 #define APP_CONFIG_H
 
 #define FW_NAME                "Fab Chamber Controller"
-#define FW_VERSION             "0.13"
+#define FW_VERSION             "0.15"
 
 #define CPU_CLOCK_HZ           16000000UL   /* internal HSI oscillator after reset */
 #define UART_BAUD              115200UL

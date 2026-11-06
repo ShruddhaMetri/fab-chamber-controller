@@ -50,8 +50,18 @@ showAnalyzer sysbus.usart2
 # a [WARNING] line for every one (10 times a second). Real errors still show.
 logLevel 3 sysbus.dma2
 logLevel 3 sysbus.i2c1
+logLevel 3 sysbus.flash_controller   # Step 15: same for the internal-flash controller
 
 $bin?=@C:/embedded/fab-chamber-controller/firmware/chamber_ctrl/Debug/chamber_ctrl.elf
+$boot?=@C:/embedded/fab-chamber-controller/firmware/chamber_boot/Debug/chamber_boot.elf
+
+# Step 15: load BOTH programs into flash once, like programming a real chip:
+#   the application at 0x08020000, the bootloader at 0x08000000.
+# They are NOT reloaded on reset any more - otherwise a firmware update that
+# the bootloader wrote into flash would be overwritten by the old file.
+# The bootloader is loaded last, so the CPU starts there.
+sysbus LoadELF $bin
+sysbus LoadELF $boot
 
 # The reset macro runs at start-up AND after every reset of the virtual chip.
 # Starting sensor values (raw ADC counts, 0-4095 = 0-3.3 V), -1 = hold until changed:
@@ -61,10 +71,14 @@ $bin?=@C:/embedded/fab-chamber-controller/firmware/chamber_ctrl/Debug/chamber_ct
 # From Step 10 (temperature) and Step 12 (pressure), chamber_model.py replaces
 # channels 14 and 15 with its own values at every scan, so these are only the
 # readings for the first 100 ms after a reset.
+# Like a real Cortex-M, the CPU starts from the vector table at the start of
+# flash after every reset: that is the bootloader's.
 macro reset
 """
-    sysbus LoadELF $bin
     sysbus.nvic Frequency 16000000
+    cpu VectorTableOffset 0x08000000
+    cpu SP `sysbus ReadDoubleWord 0x08000000`
+    cpu PC `sysbus ReadDoubleWord 0x08000004`
     sysbus.adc1 FeedSample 128 14 -1
     sysbus.adc1 FeedSample 819 15 -1
     sysbus.adc1 FeedSample 0 12 -1

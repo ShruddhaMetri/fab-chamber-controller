@@ -36,11 +36,13 @@ typedef enum {
     RR_OPERATOR,          /* 'reset' command                                 */
     RR_SUPERVISOR,        /* a task stopped checking in -> watchdog reset    */
     RR_HARDFAULT,         /* CPU fault                                       */
-    RR_FATAL              /* stack overflow, out of memory, failed assert    */
+    RR_FATAL,             /* stack overflow, out of memory, failed assert    */
+    RR_UPDATE             /* restart to let the bootloader install an update */
 } reset_reason_t;
 
 void health_boot_report(void);             /* call early in main(): prints why we restarted */
 void health_watchdog_start(void);          /* call just before the scheduler starts         */
+void health_watchdog_set_timeout(uint32_t ms);   /* longer while erasing flash (max 4095)  */
 void health_checkin(health_client_t c);    /* each supervised task, every cycle             */
 void health_task(void *arg);               /* the Watchdog supervisor task                  */
 

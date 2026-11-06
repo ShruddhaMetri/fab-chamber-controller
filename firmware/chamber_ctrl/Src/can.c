@@ -68,9 +68,10 @@ void can1_init(void)
             | (12UL << 16)         /* TS1  = 13 quanta  */
             | (1UL << 0);          /* BRP  = 2          */
 
-    /* 6. Acceptance filter 0: accept identifiers 0x200-0x21F only.
+    /* 6. Acceptance filter 0: accept identifiers 0x200-0x23F only
+     *    (commands 0x200-0x21F, firmware update 0x220-0x23F from Step 15).
      *    Mask mode: a received ID passes if (ID & mask) == (filter & mask).
-     *    Mask 0x7E0 compares the top 6 bits, so the low 5 bits may be anything.
+     *    Mask 0x7C0 compares the top 5 bits, so the low 6 bits may be anything.
      *    In the 32-bit registers the 11-bit standard ID sits in bits 21-31. */
     CAN_FMR  |=  CAN_FMR_FINIT;
     CAN_FA1R &= ~1UL;              /* filter 0 off while changing it */
@@ -78,7 +79,7 @@ void can1_init(void)
     CAN_FM1R &= ~1UL;              /* mask mode                      */
     CAN_FFA1R &= ~1UL;             /* matches go to FIFO 0           */
     CAN_F0R1 = (0x200UL << 21);
-    CAN_F0R2 = (0x7E0UL << 21) | (1UL << 2);   /* also require IDE = 0 (standard ID) */
+    CAN_F0R2 = (0x7C0UL << 21) | (1UL << 2);   /* also require IDE = 0 (standard ID) */
     CAN_FA1R |=  1UL;
     CAN_FMR  &= ~CAN_FMR_FINIT;
 

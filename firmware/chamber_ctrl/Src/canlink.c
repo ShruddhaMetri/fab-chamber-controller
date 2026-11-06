@@ -21,6 +21,7 @@
 #include "rtos_app.h"
 #include "stm32f407_regs.h"
 #include "health.h"
+#include "fwupdate.h"
 
 #define PERIOD_MS         100U
 #define STATUS_EVERY      5U        /* x 100 ms = status every 500 ms     */
@@ -167,6 +168,8 @@ void canlink_task(void *arg)
             host_ever    = 1;
             if (f.id == CANID_COMMAND) {
                 handle_command(&f);
+            } else if (fwupdate_is_frame(f.id)) {
+                fwupdate_handle(&f);            /* Step 15: firmware update */
             }
             /* CANID_HEARTBEAT needs no answer: receiving it is the point */
             continue;

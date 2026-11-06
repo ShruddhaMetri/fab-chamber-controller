@@ -2,7 +2,7 @@
  * can.h
  * CAN1 driver (STM32 bxCAN), register level.
  *   PB8 = CAN1_RX, PB9 = CAN1_TX (alternate function 9), 500 kbit/s.
- *   Only identifiers 0x200-0x21F (commands for this node) are received:
+ *   Only identifiers 0x200-0x23F (commands and firmware updates) are received:
  *   the hardware filter throws everything else away, so the CPU never sees it.
  *   Received frames go from the interrupt into a FreeRTOS queue.
  */

@@ -13,6 +13,7 @@
  *   0x180  chamber->host   reply to command  0 command, 1 result, 2 argument
  *   0x200  host->chamber   command           0 command (1 RUN, 2 ABORT, 3 PING), 1 argument
  *   0x210  host->chamber   every second      heartbeat: "the host is alive"
+ *   0x220-0x223, 0x181                      firmware update, see fwupdate.h
  *
  * The lowest identifier wins arbitration, so events (0x080) always get on
  * the bus before routine status (0x100), even when both want to send.

@@ -12,6 +12,7 @@
 #include "gpio.h"
 #include "actuators.h"
 #include "app_config.h"
+#include "fw_image.h"
 
 /* ---------------- Settings ---------------- */
 #define WDG_TIMEOUT_MS      1000U   /* reset if not refreshed for 1 s                */
@@ -200,6 +201,16 @@ static void print_reason(void)
         uart2_panic_puts(", HFSR=");  raw_hex(prev[BKP_HFSR]);
         uart2_panic_puts("\n             (find the PC in Debug/chamber_ctrl.list to see the function)\n");
         break;
+    case RR_UPDATE:
+        uart2_panic_puts("firmware update requested");
+        if (RTC_BKP(BKP_BOOT_RESULT) == BOOT_RES_INSTALLED) {
+            uart2_panic_puts(" - INSTALLED by the bootloader\n");
+        } else if (RTC_BKP(BKP_BOOT_RESULT) == BOOT_RES_BAD_IMAGE) {
+            uart2_panic_puts(" - REJECTED by the bootloader (bad image), old firmware kept\n");
+        } else {
+            uart2_panic_puts("\n");
+        }
+        break;
     case RR_FATAL:
         uart2_panic_puts("FATAL SOFTWARE ERROR in ");
         put_tag(prev[BKP_TAG]);
@@ -255,6 +266,15 @@ void health_watchdog_start(void)
     }
     IWDG_KR  = IWDG_KEY_REFRESH;
     wdg_running = 1;
+}
+
+void health_watchdog_set_timeout(uint32_t ms)
+{
+    if (ms > 4095U) { ms = 4095U; }
+    IWDG_KR  = IWDG_KEY_REFRESH;         /* fresh start for the new period */
+    IWDG_KR  = IWDG_KEY_UNLOCK;
+    IWDG_RLR = ms - 1U;
+    IWDG_KR  = IWDG_KEY_REFRESH;
 }
 
 void health_checkin(health_client_t c)

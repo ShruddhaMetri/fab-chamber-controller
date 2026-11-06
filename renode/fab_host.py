@@ -15,6 +15,9 @@
 #   fabping         check that the chamber answers
 #   fablink 0       stop the heartbeat (simulates a broken cable / crashed host)
 #   fablink 1       start it again
+#   fabupdate "C:/path/chamber_ctrl.bin"     send a new firmware image (Step 15)
+#   fabupdatebad "C:/path/chamber_ctrl.bin"  same, but damaged on the way (test)
+#   fabinstall      tell the controller to install the received image
 # (Not "host...": Renode already has a built-in element called "host".)
 #
 # Frame layout: see firmware/chamber_ctrl/Inc/canlink.h
@@ -43,6 +46,23 @@ def _step(n):
 
 def _u16(d, i):
     return d[i] | (d[i + 1] << 8)
+
+def _make_crc_table():
+    table = []
+    for n in range(256):
+        c = n
+        for _ in range(8):
+            c = (c >> 1) ^ 0xEDB88320 if (c & 1) else (c >> 1)
+        table.append(c)
+    return table
+
+_CRC_TABLE = _make_crc_table()
+
+def _crc32(data):              # same CRC-32 as crc32.c in the firmware
+    crc = 0xFFFFFFFF
+    for byte in data:
+        crc = (crc >> 8) ^ _CRC_TABLE[(crc ^ byte) & 0xFF]
+    return crc ^ 0xFFFFFFFF
 
 class FabHost(object):
     def __init__(self, machine):
@@ -90,6 +110,61 @@ class FabHost(object):
             self.process = d
         elif f.Id == 0x180:
             self.log("REPLY to %s: %s (arg %d)" % (CMDS.get(d[0], "?"), RESULTS.get(d[1], "?"), d[2]))
+        elif f.Id == 0x181:
+            self.on_fw_reply(d)
+
+    # ---- firmware update (Step 15) ----
+    # The image is sent 6 bytes per frame, stop-and-wait: the next frame
+    # goes out only when the controller has replied to the previous one.
+    def fw_start(self, data, corrupt=False):
+        self.fw_data = bytearray(data)
+        crc = _crc32(self.fw_data)
+        if corrupt:                       # damage one byte AFTER computing the CRC
+            self.fw_data[len(self.fw_data) // 2] ^= 0xFF
+        self.fw_frames = (len(self.fw_data) + 5) // 6
+        self.fw_last_pct = -1
+        n, c = len(self.fw_data), crc
+        print("Image: %d bytes, CRC-32 0x%08X, %d data frames" % (n, c, self.fw_frames))
+        self.send(0x220, [n & 0xFF, (n >> 8) & 0xFF, (n >> 16) & 0xFF, (n >> 24) & 0xFF,
+                          c & 0xFF, (c >> 8) & 0xFF, (c >> 16) & 0xFF, (c >> 24) & 0xFF])
+
+    def fw_send_data(self, seq):
+        chunk = list(self.fw_data[seq * 6:(seq + 1) * 6])
+        self.send(0x221, [seq & 0xFF, (seq >> 8) & 0xFF] + chunk)
+
+    def on_fw_reply(self, d):
+        which, status, seq = d[0], d[1], d[2] | (d[3] << 8)
+        names = {0: "OK", 1: "REFUSED (recipe running)", 2: "BAD SEQUENCE", 3: "TOO BIG",
+                 4: "CRC MISMATCH - image rejected", 5: "FLASH ERROR", 6: "NOT READY"}
+        if which == 0x20:
+            if status == 0:
+                self.log("UPDATE: controller erased staging, sending image...")
+                self.fw_send_data(0)
+            else:
+                self.log("UPDATE BEGIN refused: %s" % names.get(status, "?"))
+        elif which == 0x21:
+            if status == 0:
+                nxt = seq + 1
+                pct = (nxt * 100) // self.fw_frames
+                if pct // 10 != self.fw_last_pct // 10:
+                    self.fw_last_pct = pct
+                    print("[HOST] update %3d %%" % pct)
+                if nxt < self.fw_frames:
+                    self.fw_send_data(nxt)
+                else:
+                    self.send(0x222, [])
+            elif status == 2:
+                self.fw_send_data(seq)            # resend from where the controller is
+            else:
+                self.log("UPDATE DATA failed: %s" % names.get(status, "?"))
+        elif which == 0x22:
+            if status == 0:
+                self.log("UPDATE: image VERIFIED by the controller. Type 'fabinstall'.")
+            else:
+                self.log("UPDATE END: %s" % names.get(status, "?"))
+        elif which == 0x23:
+            self.log("INSTALL: %s" % ("controller restarting into bootloader" if status == 0
+                                      else names.get(status, "?")))
 
     # ---- what the monitor commands print ----
     def show(self):
@@ -138,6 +213,22 @@ def mc_fababort():
 def mc_fabping():
     sys.fab_host.send(0x200, [3, 0x5A])
     print("Sent PING (0x200).")
+
+def _read_bin(path):
+    path = str(path).strip('"').lstrip('@')
+    with open(path, 'rb') as fh:
+        return bytearray(fh.read())
+
+def mc_fabupdate(path):
+    sys.fab_host.fw_start(_read_bin(path))
+
+def mc_fabupdatebad(path):
+    print("Sending a DAMAGED copy (one byte flipped after the CRC was calculated)")
+    sys.fab_host.fw_start(_read_bin(path), corrupt=True)
+
+def mc_fabinstall():
+    sys.fab_host.send(0x223, [])
+    print("Sent INSTALL (0x223).")
 
 def mc_fablink(on):
     sys.fab_host.heartbeat = bool(int(on))

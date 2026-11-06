@@ -9,6 +9,7 @@
  *              the safety task keep running on time anyway
  *
  * Step 12: run / abort / proc control the automatic recipe (process.c).
+ * Step 15: 'fw' shows the installed / staged firmware images.
  * Step 14: 'diag' (reset history, watchdog), 'crash hang/fault/assert' tests.
  * Step 13: 'can' shows the CAN link; recipe commands hold the storage mutex
  *          because the CANlink task can now also read recipes.
@@ -34,6 +35,7 @@
 #include "process.h"
 #include "canlink.h"
 #include "health.h"
+#include "fwupdate.h"
 #include "freertos/FreeRTOS.h"
 
 #define LINE_MAX   64U
@@ -78,6 +80,7 @@ static void cmd_help(void)
     uart2_puts("  proc      show the recipe step, timers and pressure control\n");
     uart2_puts("  can       CAN bus statistics and fab-host link\n");
     uart2_puts("  diag      reset history, watchdog and task check-ins\n");
+    uart2_puts("  fw        firmware version, installed and staged images\n");
     uart2_puts("  crash hang|fault|assert   TEST a software failure (controller restarts)\n");
     uart2_puts("  tasks     FreeRTOS tasks, stack use, control-loop timing\n");
     uart2_puts("  busy N    keep the console busy for N ms (RTOS demo)\n");
@@ -786,6 +789,8 @@ static void run_command(const char *cmd)
         canlink_print();
     } else if (strcmp(cmd, "diag") == 0) {
         health_print();
+    } else if (strcmp(cmd, "fw") == 0) {
+        fwupdate_print();
     } else if (strncmp(cmd, "crash", 5) == 0 && (cmd[5] == '\0' || cmd[5] == ' ')) {
         cmd_crash(cmd + 5);
     } else if (strncmp(cmd, "recipe", 6) == 0 && (cmd[6] == '\0' || cmd[6] == ' ')) {
