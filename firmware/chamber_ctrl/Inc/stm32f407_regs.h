@@ -242,6 +242,42 @@
 #define CAN_ESR_BOFF           (1UL << 2)   /* bus-off */
 #define CAN_ESR_EPVF           (1UL << 1)   /* error passive */
 
+/* ---------------- Reliability (Step 14) ---------------- */
+/* Independent watchdog: its own 32 kHz clock (LSI), keeps running even if
+ * the main clock or the CPU stops. Once started it cannot be stopped. */
+#define IWDG_BASE              0x40003000UL
+#define IWDG_KR                REG32(IWDG_BASE + 0x00)  /* key: start / unlock / refresh */
+#define IWDG_PR                REG32(IWDG_BASE + 0x04)  /* prescaler                     */
+#define IWDG_RLR               REG32(IWDG_BASE + 0x08)  /* reload value (12 bits)        */
+#define IWDG_SR                REG32(IWDG_BASE + 0x0C)  /* update in progress flags      */
+#define IWDG_KEY_START         0xCCCCUL
+#define IWDG_KEY_UNLOCK        0x5555UL
+#define IWDG_KEY_REFRESH       0xAAAAUL
+
+/* RTC backup registers: 20 x 32 bits in the battery-backed domain. They keep
+ * their value through any reset (not through removing all power). */
+#define RTC_BKP(n)             REG32(0x40002850UL + 4UL * (n))
+#define PWR_CR                 REG32(0x40007000UL)
+#define PWR_CR_DBP             (1UL << 8)               /* allow writes to backup domain */
+#define RCC_APB1ENR_PWREN      (1UL << 28)
+
+/* Reset flags: which kind of reset happened last */
+#define RCC_CSR                REG32(RCC_BASE + 0x74)
+#define RCC_CSR_RMVF           (1UL << 24)              /* write 1: clear the flags */
+#define RCC_CSR_PINRSTF        (1UL << 26)
+#define RCC_CSR_PORRSTF        (1UL << 27)
+#define RCC_CSR_SFTRSTF        (1UL << 28)
+#define RCC_CSR_IWDGRSTF       (1UL << 29)
+
+/* Fault status registers (what went wrong in a HardFault) */
+#define SCB_CFSR               REG32(0xE000ED28UL)      /* configurable fault status */
+#define SCB_HFSR               REG32(0xE000ED2CUL)      /* hard fault status         */
+#define SCB_BFAR               REG32(0xE000ED38UL)      /* bus fault address         */
+
+/* Debug: freeze the watchdog while a debugger has the CPU halted */
+#define DBGMCU_APB1_FZ         REG32(0xE0042008UL)
+#define DBGMCU_IWDG_STOP       (1UL << 12)
+
 /* ---------------- SCB: system control ---------------- */
 #define SCB_AIRCR              REG32(0xE000ED0CUL)
 #define SCB_AIRCR_RESET        ((0x5FAUL << 16) | (1UL << 2))  /* key + SYSRESETREQ */

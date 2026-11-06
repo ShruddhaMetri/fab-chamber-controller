@@ -20,6 +20,7 @@
 #include "recipe.h"
 #include "rtos_app.h"
 #include "stm32f407_regs.h"
+#include "health.h"
 
 #define PERIOD_MS         100U
 #define STATUS_EVERY      5U        /* x 100 ms = status every 500 ms     */
@@ -157,6 +158,8 @@ void canlink_task(void *arg)
     for (;;) {
         TickType_t now  = xTaskGetTickCount();
         TickType_t wait = ((int32_t)(next - now) > 0) ? (next - now) : 0U;
+
+        health_checkin(HC_CANLINK);
 
         if (can1_receive(&f, (uint32_t)wait)) {
             /* A frame arrived (the hardware filter only lets 0x200-0x21F through) */

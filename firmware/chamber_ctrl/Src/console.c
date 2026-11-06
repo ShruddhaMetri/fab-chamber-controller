@@ -9,6 +9,7 @@
  *              the safety task keep running on time anyway
  *
  * Step 12: run / abort / proc control the automatic recipe (process.c).
+ * Step 14: 'diag' (reset history, watchdog), 'crash hang/fault/assert' tests.
  * Step 13: 'can' shows the CAN link; recipe commands hold the storage mutex
  *          because the CANlink task can now also read recipes.
  * While a recipe runs, manual commands that move the chamber (temp, heater,
@@ -32,6 +33,8 @@
 #include "rtos_app.h"
 #include "process.h"
 #include "canlink.h"
+#include "health.h"
+#include "freertos/FreeRTOS.h"
 
 #define LINE_MAX   64U
 
@@ -74,6 +77,8 @@ static void cmd_help(void)
     uart2_puts("  abort     stop the running recipe and make the chamber safe\n");
     uart2_puts("  proc      show the recipe step, timers and pressure control\n");
     uart2_puts("  can       CAN bus statistics and fab-host link\n");
+    uart2_puts("  diag      reset history, watchdog and task check-ins\n");
+    uart2_puts("  crash hang|fault|assert   TEST a software failure (controller restarts)\n");
     uart2_puts("  tasks     FreeRTOS tasks, stack use, control-loop timing\n");
     uart2_puts("  busy N    keep the console busy for N ms (RTOS demo)\n");
     uart2_puts("  version   firmware version\n");
@@ -735,9 +740,25 @@ static void cmd_reset(void)
 {
     uart2_puts("Resetting...\n");
     delay_ms(10);                       /* let the message finish sending */
-    SCB_AIRCR = SCB_AIRCR_RESET;        /* ask the CPU for a system reset */
-    while (1) {
-        /* wait for the reset to happen */
+    health_reset(RR_OPERATOR, 0U, "user");   /* records the reason, then resets */
+}
+
+/* Deliberate failures, to prove the protections work */
+static void cmd_crash(const char *arg)
+{
+    if (strcmp(arg, " hang") == 0) {
+        uart2_puts("Control task will now loop forever (simulated bug)...\n");
+        health_test_hang();
+    } else if (strcmp(arg, " fault") == 0) {
+        uart2_puts("Executing an illegal instruction...\n");
+        delay_ms(10);
+        health_test_fault();
+    } else if (strcmp(arg, " assert") == 0) {
+        uart2_puts("Failing a configASSERT check...\n");
+        delay_ms(10);
+        configASSERT(0);
+    } else {
+        uart2_puts("Usage: crash hang | crash fault | crash assert\n");
     }
 }
 
@@ -763,6 +784,10 @@ static void run_command(const char *cmd)
         cmd_proc();
     } else if (strcmp(cmd, "can") == 0) {
         canlink_print();
+    } else if (strcmp(cmd, "diag") == 0) {
+        health_print();
+    } else if (strncmp(cmd, "crash", 5) == 0 && (cmd[5] == '\0' || cmd[5] == ' ')) {
+        cmd_crash(cmd + 5);
     } else if (strncmp(cmd, "recipe", 6) == 0 && (cmd[6] == '\0' || cmd[6] == ' ')) {
         storage_lock();                /* EEPROM shared with the CANlink task */
         cmd_recipe(cmd);

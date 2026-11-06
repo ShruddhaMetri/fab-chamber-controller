@@ -45,6 +45,12 @@ include @C:/embedded/fab-chamber-controller/renode/fab_host.py
 
 showAnalyzer sysbus.usart2
 
+# Hide harmless simulator warnings: the firmware clears DMA and I2C status
+# flags that Renode's simple models do not implement, and Renode would print
+# a [WARNING] line for every one (10 times a second). Real errors still show.
+logLevel 3 sysbus.dma2
+logLevel 3 sysbus.i2c1
+
 $bin?=@C:/embedded/fab-chamber-controller/firmware/chamber_ctrl/Debug/chamber_ctrl.elf
 
 # The reset macro runs at start-up AND after every reset of the virtual chip.

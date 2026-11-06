@@ -39,7 +39,7 @@
 #define configUSE_QUEUE_SETS                    0
 #define configUSE_NEWLIB_REENTRANT              0
 #define configQUEUE_REGISTRY_SIZE               0
-#define configUSE_IDLE_HOOK                     0
+#define configUSE_IDLE_HOOK                     1   /* Step 14: sleep (WFI) when idle */
 #define configUSE_TICK_HOOK                     0
 
 /* ---------------- Error detection ---------------- */

@@ -31,8 +31,10 @@
 #include "process.h"
 #include "can.h"
 #include "canlink.h"
+#include "health.h"
 
 /* ---------------- Priorities (higher number = more urgent) ---------------- */
+#define PRIO_WATCHDOG     4U   /* same top level as Safety: they take turns */
 #define PRIO_SAFETY       4U
 #define PRIO_CONTROL      3U
 #define PRIO_PROCESS      2U
@@ -44,6 +46,7 @@
 /* ---------------- Stack sizes, in 32-bit words ----------------
  * Chosen generously, then checked with the 'tasks' command, which shows the
  * smallest amount each stack has ever had free. */
+#define STACK_WATCHDOG    256U
 #define STACK_SAFETY      256U
 #define STACK_CONTROL     384U
 #define STACK_PROCESS     512U
@@ -67,6 +70,13 @@ static volatile uint32_t g_ctrl_overruns = 0U;   /* periods more than 10 % late 
 void flash_lock(void)
 {
     (void)xSemaphoreTake(g_flash_mutex, portMAX_DELAY);
+}
+
+/* With a time limit: the Logger must not wait forever (it is supervised by
+ * the watchdog), e.g. while the console prints a long 'log csv' */
+static int flash_trylock(uint32_t ms)
+{
+    return xSemaphoreTake(g_flash_mutex, pdMS_TO_TICKS(ms)) == pdTRUE;
 }
 
 void flash_unlock(void)
@@ -93,6 +103,7 @@ static void safety_task(void *arg)
     for (;;) {
         xTaskDelayUntil(&wake, pdMS_TO_TICKS(SAFETY_SAMPLE_MS));
         safety_poll();               /* debounce inputs, print new trips */
+        health_checkin(HC_SAFETY);
     }
 }
 
@@ -104,6 +115,11 @@ static void control_task(void *arg)
 
     for (;;) {
         xTaskDelayUntil(&wake, pdMS_TO_TICKS(SENSOR_PERIOD_MS));
+
+        /* 'crash hang' test: simulate a bug that makes this task loop forever */
+        while (health_hang_requested()) {
+        }
+        health_checkin(HC_CONTROL);
 
         /* Measure the real time between two runs (the "jitter") */
         uint32_t now = millis();
@@ -129,9 +145,11 @@ static void logger_task(void *arg)
 
     for (;;) {
         xTaskDelayUntil(&wake, pdMS_TO_TICKS(SENSOR_PERIOD_MS));
-        flash_lock();
-        datalog_poll();   /* one record per second, or the next step of an erase */
-        flash_unlock();
+        health_checkin(HC_LOGGER);
+        if (flash_trylock(50U)) {       /* busy (console using it)? skip this cycle */
+            datalog_poll();   /* one record per second, or the next step of an erase */
+            flash_unlock();
+        }
     }
 }
 
@@ -186,6 +204,7 @@ void rtos_app_start(void)
     process_init();                       /* the console -> process command queue */
     (void)can1_rtos_init();               /* CAN receive queue + its interrupt     */
 
+    (void)create(health_task,    "Watchdog",  STACK_WATCHDOG,  PRIO_WATCHDOG);
     (void)create(safety_task,    "Safety",    STACK_SAFETY,    PRIO_SAFETY);
     (void)create(control_task,   "Control",   STACK_CONTROL,   PRIO_CONTROL);
     (void)create(process_task,   "Process",   STACK_PROCESS,   PRIO_PROCESS);
@@ -195,6 +214,8 @@ void rtos_app_start(void)
     (void)create(heartbeat_task, "Heartbeat", STACK_HEARTBEAT, PRIO_HEARTBEAT);
 
     uart2_rtos_init(console);             /* UART interrupt will wake the console */
+
+    health_watchdog_start();              /* from now on: refresh within 1 s, or reset */
 
     vTaskStartScheduler();                /* from here on, the kernel decides what runs */
 
@@ -261,34 +282,34 @@ void rtos_print_tasks(void)
 /* ---------------- Fatal software errors ----------------
  * A bug the kernel can detect (stack overflow, failed check, no memory)
  * must never leave the heater running. Put the chamber in the safe state,
- * say what happened, and stop. (Step 14 adds a watchdog that will then
- * restart the controller automatically.) */
-static void fatal(const char *what, const char *detail)
+ * say what happened, record it in the backup registers and restart
+ * (Step 14; before, the controller just halted). */
+static void fatal(const char *what, const char *detail, uint32_t line)
 {
     taskDISABLE_INTERRUPTS();             /* stop task switching; e-stop ISRs still run */
-    actuators_safe_state();
-    led_on(LED_RED);
     uart2_panic_puts("\n\n*** FATAL SOFTWARE ERROR: ");
     uart2_panic_puts(what);
     uart2_panic_puts(detail);
-    uart2_panic_puts("\n*** Chamber in safe state. Controller halted.\n");
-    for (;;) {
-    }
+    health_reset(RR_FATAL, line, detail); /* safe state, record, reset */
 }
 
 void vApplicationStackOverflowHook(TaskHandle_t task, char *name)
 {
     (void)task;
-    fatal("stack overflow in task ", name);
+    fatal("stack overflow in task ", name, 0U);
 }
 
 void vApplicationMallocFailedHook(void)
 {
-    fatal("out of heap memory", "");
+    fatal("out of heap memory", "heap", 0U);
 }
 
 void rtos_assert_failed(const char *file, int line)
 {
-    (void)line;
-    fatal("check failed in ", file);
+    const char *base = file;              /* keep only the file name, not the path */
+    const char *p;
+    for (p = file; *p != '\0'; p++) {
+        if (*p == '/' || *p == '\\') { base = p + 1; }
+    }
+    fatal("check failed in ", base, (uint32_t)line);
 }

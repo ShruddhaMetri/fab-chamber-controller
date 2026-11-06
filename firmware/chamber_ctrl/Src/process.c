@@ -22,6 +22,7 @@
 #include "gas.h"
 #include "safety.h"
 #include "temp_ctrl.h"
+#include "health.h"
 
 #define PERIOD_MS            100U
 
@@ -418,6 +419,8 @@ void process_task(void *arg)
     for (;;) {
         TickType_t now  = xTaskGetTickCount();
         TickType_t wait = ((int32_t)(next - now) > 0) ? (next - now) : 0U;
+
+        health_checkin(HC_PROCESS);
 
         /* Sleep until a command arrives OR the next 100 ms period is due */
         if (xQueueReceive(g_queue, &msg, wait) == pdPASS) {

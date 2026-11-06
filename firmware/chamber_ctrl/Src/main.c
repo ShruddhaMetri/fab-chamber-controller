@@ -1,6 +1,6 @@
 /*
- * Fab Chamber Controller - Step 13
- * FreeRTOS tasks, automatic recipes, and a CAN link to the fab host.
+ * Fab Chamber Controller - Step 14
+ * FreeRTOS tasks, automatic recipes, CAN host link, watchdog and fault capture.
  * Target: STM32F407VG (STM32F4 Discovery), simulated in Renode
  */
 #include <stdint.h>
@@ -17,6 +17,7 @@
 #include "temp_ctrl.h"
 #include "rtos_app.h"
 #include "can.h"
+#include "health.h"
 
 int main(void)
 {
@@ -40,8 +41,9 @@ int main(void)
     /* 2. Boot banner */
     uart2_puts("\n=================================\n");
     uart2_puts(" " FW_NAME " v" FW_VERSION "\n");
-    uart2_puts(" FreeRTOS + recipes + CAN host link\n");
+    uart2_puts(" Watchdog + fault capture\n");
     uart2_puts("=================================\n");
+    health_boot_report();    /* Step 14: why did we restart? */
     datalog_init();          /* prints how many records it found */
 
     /* 3. Hand over to the RTOS. The old while(1) loop is gone: each of its
